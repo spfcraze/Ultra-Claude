@@ -38,7 +38,7 @@ UltraClaude is a powerful web-based interface for managing multiple Claude Code 
 ### One-Line Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yourusername/ultraclaude/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/spfcraze/ultraclaude/main/install.sh | bash
 ```
 
 ### Manual Install
