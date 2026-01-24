@@ -237,6 +237,22 @@ CREATE TABLE IF NOT EXISTS oauth_client_configs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Approval History for audit trail
+CREATE TABLE IF NOT EXISTS approval_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    action TEXT NOT NULL,
+    source TEXT DEFAULT 'web',
+    responded_at TEXT NOT NULL,
+    timeout_seconds REAL,
+    was_timeout INTEGER DEFAULT 0,
+    FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_history_execution ON approval_history(execution_id);
+CREATE INDEX IF NOT EXISTS idx_approval_history_action ON approval_history(action);
 """
 
 
@@ -1395,6 +1411,54 @@ class Database:
                 (provider,)
             )
             return cursor.rowcount > 0
+
+    # ==================== Approval History Methods ====================
+
+    def create_approval_record(self, data: Dict[str, Any]) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                INSERT INTO approval_history (
+                    execution_id, message, action, source,
+                    responded_at, timeout_seconds, was_timeout
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('execution_id', ''),
+                data.get('message', ''),
+                data.get('action', ''),
+                data.get('source', 'web'),
+                data.get('responded_at', datetime.now().isoformat()),
+                data.get('timeout_seconds'),
+                int(data.get('was_timeout', False)),
+            ))
+            return cursor.lastrowid or 0
+
+    def get_approval_history(self, execution_id: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM approval_history WHERE execution_id = ? ORDER BY responded_at DESC",
+                (execution_id,)
+            ).fetchall()
+            return [self._row_to_approval_record(row) for row in rows]
+
+    def get_recent_approvals(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM approval_history ORDER BY responded_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [self._row_to_approval_record(row) for row in rows]
+
+    def _row_to_approval_record(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'execution_id': row['execution_id'],
+            'message': row['message'],
+            'action': row['action'],
+            'source': row['source'],
+            'responded_at': row['responded_at'],
+            'timeout_seconds': row['timeout_seconds'],
+            'was_timeout': bool(row['was_timeout']),
+        }
 
 
 db = Database()

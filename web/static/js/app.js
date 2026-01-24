@@ -82,6 +82,9 @@ class UltraClaude {
         this.lastOutputTime = new Map();
         this.hasRenderedOnce = false;
         this.reviewTemplates = [];
+        this.wsReconnectAttempts = 0;
+        this.wsReconnectTimeout = null;
+        this.maxWsReconnectAttempts = 5;
 
         this.init();
     }
@@ -95,6 +98,21 @@ class UltraClaude {
     }
 
     connectWebSocket() {
+        if (this.wsReconnectTimeout) {
+            clearTimeout(this.wsReconnectTimeout);
+            this.wsReconnectTimeout = null;
+        }
+        
+        if (this.ws) {
+            this.ws.onclose = null;
+            this.ws.close();
+        }
+        
+        this.wsReconnectAttempts = 0;
+        this._connectWebSocket();
+    }
+    
+    _connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
 
@@ -102,6 +120,7 @@ class UltraClaude {
 
         this.ws.onopen = () => {
             console.log('WebSocket connected');
+            this.wsReconnectAttempts = 0;
         };
 
         this.ws.onmessage = (event) => {
@@ -114,8 +133,15 @@ class UltraClaude {
         };
 
         this.ws.onclose = () => {
-            console.log('WebSocket disconnected, reconnecting...');
-            setTimeout(() => this.connectWebSocket(), 2000);
+            if (this.wsReconnectAttempts < this.maxWsReconnectAttempts) {
+                this.wsReconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
+                console.log(`WebSocket closed, reconnecting in ${delay}ms (attempt ${this.wsReconnectAttempts}/${this.maxWsReconnectAttempts})`);
+                this.wsReconnectTimeout = setTimeout(() => this._connectWebSocket(), delay);
+            } else {
+                console.error('WebSocket max reconnect attempts reached');
+                Toast.error('Connection Lost', 'Unable to reconnect. Please refresh the page.');
+            }
         };
 
         this.ws.onerror = (error) => {

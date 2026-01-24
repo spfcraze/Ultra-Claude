@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -18,20 +20,23 @@ from .budget_tracker import budget_manager
 from .providers.registry import model_registry
 from .oauth.manager import oauth_manager, AuthStatus
 from .oauth.storage import OAuthClientConfig
+from ..database import db
 
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
 
 class ApprovalManager:
-    """Manages pending approval requests for web UI."""
     
-    DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes
+    DEFAULT_TIMEOUT_SECONDS = 300
     
     def __init__(self):
+        self._lock = threading.Lock()
         self._pending: dict[str, asyncio.Future[bool]] = {}
         self._messages: dict[str, str] = {}
         self._timeout_tasks: dict[str, asyncio.Task] = {}
+        self._timeout_values: dict[str, float] = {}
+        self._created_at: dict[str, datetime] = {}
     
     def create_request(
         self, 
@@ -53,37 +58,84 @@ class ApprovalManager:
         future: asyncio.Future[bool] = loop.create_future()
         self._pending[execution_id] = future
         self._messages[execution_id] = message
+        self._created_at[execution_id] = datetime.now()
         
-        if timeout_seconds is not None and timeout_seconds > 0:
+        effective_timeout = timeout_seconds if timeout_seconds is not None else self.DEFAULT_TIMEOUT_SECONDS
+        self._timeout_values[execution_id] = effective_timeout
+        
+        if effective_timeout > 0:
             async def timeout_handler():
-                await asyncio.sleep(timeout_seconds)
+                await asyncio.sleep(effective_timeout)
                 if execution_id in self._pending and not self._pending[execution_id].done():
-                    self.resolve(execution_id, default_on_timeout)
+                    self._record_approval(execution_id, "timeout", was_timeout=True)
+                    self.resolve(execution_id, default_on_timeout, source="timeout")
             
-            self._timeout_tasks[execution_id] = asyncio.create_task(timeout_handler())
+            try:
+                self._timeout_tasks[execution_id] = asyncio.create_task(timeout_handler())
+            except RuntimeError:
+                pass
         
         return future
     
-    def resolve(self, execution_id: str, approved: bool) -> bool:
-        """Resolve a pending approval request."""
-        if execution_id not in self._pending:
-            return False
-        
-        if execution_id in self._timeout_tasks:
-            self._timeout_tasks[execution_id].cancel()
-            del self._timeout_tasks[execution_id]
-        
-        future = self._pending.pop(execution_id)
-        self._messages.pop(execution_id, None)
-        
-        if not future.done():
+    def resolve(self, execution_id: str, approved: bool, source: str = "web") -> bool:
+        with self._lock:
+            if execution_id not in self._pending:
+                return False
+            
+            future = self._pending.get(execution_id)
+            if future is None or future.done():
+                return False
+            
+            if source != "timeout":
+                self._record_approval(execution_id, "approved" if approved else "rejected", source=source)
+            
+            if execution_id in self._timeout_tasks:
+                self._timeout_tasks[execution_id].cancel()
+                del self._timeout_tasks[execution_id]
+            
+            self._pending.pop(execution_id, None)
+            self._messages.pop(execution_id, None)
+            self._timeout_values.pop(execution_id, None)
+            self._created_at.pop(execution_id, None)
+            
             future.set_result(approved)
             return True
-        return False
+    
+    def _record_approval(self, execution_id: str, action: str, source: str = "web", was_timeout: bool = False):
+        message = self._messages.get(execution_id, "")
+        timeout_val = self._timeout_values.get(execution_id)
+        try:
+            db.create_approval_record({
+                "execution_id": execution_id,
+                "message": message,
+                "action": action,
+                "source": source,
+                "responded_at": datetime.now().isoformat(),
+                "timeout_seconds": timeout_val,
+                "was_timeout": was_timeout,
+            })
+        except Exception:
+            pass
     
     def get_pending_message(self, execution_id: str) -> str | None:
         """Get the message for a pending approval."""
         return self._messages.get(execution_id)
+    
+    def get_pending_info(self, execution_id: str) -> dict[str, Any] | None:
+        if execution_id not in self._pending:
+            return None
+        
+        created = self._created_at.get(execution_id)
+        timeout = self._timeout_values.get(execution_id, self.DEFAULT_TIMEOUT_SECONDS)
+        elapsed = (datetime.now() - created).total_seconds() if created else 0
+        remaining = max(0, timeout - elapsed) if timeout else None
+        
+        return {
+            "message": self._messages.get(execution_id),
+            "timeout_seconds": timeout,
+            "remaining_seconds": remaining,
+            "created_at": created.isoformat() if created else None,
+        }
     
     def has_pending(self, execution_id: str) -> bool:
         """Check if there's a pending approval for this execution."""
@@ -98,6 +150,8 @@ class ApprovalManager:
         if execution_id in self._pending:
             future = self._pending.pop(execution_id)
             self._messages.pop(execution_id, None)
+            self._timeout_values.pop(execution_id, None)
+            self._created_at.pop(execution_id, None)
             if not future.done():
                 future.cancel()
 
@@ -231,6 +285,8 @@ async def update_template(template_id: str, request: TemplateCreateRequest):
     if not existing:
         raise HTTPException(status_code=404, detail="Template not found")
     
+    existing_phase_ids = {p.name: p.id for p in existing.phases}
+    
     phases = []
     for i, p in enumerate(request.phases):
         provider_data = p.get("provider_config", p.get("provider", {}))
@@ -241,9 +297,12 @@ async def update_template(template_id: str, request: TemplateCreateRequest):
             context_length=provider_data.get("context_length", 8192),
         )
         
+        phase_name = p.get("name", f"Phase {i+1}")
+        phase_id = existing_phase_ids.get(phase_name, generate_id())
+        
         phase = WorkflowPhase(
-            id=generate_id(),
-            name=p.get("name", f"Phase {i+1}"),
+            id=phase_id,
+            name=phase_name,
             role=PhaseRole(p.get("role", "analyzer")),
             provider_config=provider_config,
             prompt_template=p.get("prompt_template", ""),
@@ -344,10 +403,17 @@ async def get_execution(execution_id: str):
     artifacts = workflow_orchestrator.get_artifacts(execution_id)
     budget = workflow_orchestrator.get_budget_summary(execution_id)
     
+    template_phases = None
+    if execution.template_id:
+        template = template_manager.get(execution.template_id)
+        if template:
+            template_phases = [p.to_dict() for p in template.phases]
+    
     return {
         "execution": execution.to_dict(),
         "artifacts": [a.to_dict() for a in artifacts],
         "budget": budget,
+        "template_phases": template_phases,
     }
 
 
@@ -729,9 +795,16 @@ async def workflow_websocket(websocket: WebSocket, execution_id: str):
             "execution": execution.to_dict(),
         }
         
+        if execution.template_id:
+            template = template_manager.get(execution.template_id)
+            if template:
+                init_data["template_phases"] = [p.to_dict() for p in template.phases]
+        
         if approval_manager.has_pending(execution_id):
+            approval_info = approval_manager.get_pending_info(execution_id)
             init_data["pending_approval"] = {
-                "message": approval_manager.get_pending_message(execution_id),
+                "message": approval_info.get("message") if approval_info else "",
+                "timeout_seconds": approval_info.get("remaining_seconds") if approval_info else 300,
             }
         
         await websocket.send_json(init_data)
@@ -767,16 +840,31 @@ async def broadcast_workflow_event(execution_id: str, event_type: str, data: dic
 
 
 async def web_approval_callback(execution_id: str, message: str) -> bool:
+    has_clients = ws_manager.has_connections(execution_id)
+    timeout = ApprovalManager.DEFAULT_TIMEOUT_SECONDS if has_clients else 30
+    
     await ws_manager.broadcast(execution_id, {
         "type": "approval_needed",
         "execution_id": execution_id,
         "message": message,
+        "timeout_seconds": timeout,
     })
     
-    future = approval_manager.create_request(execution_id, message)
+    future = approval_manager.create_request(
+        execution_id, 
+        message, 
+        timeout_seconds=timeout,
+        default_on_timeout=False
+    )
     
     try:
-        return await future
+        result = await future
+        await ws_manager.broadcast(execution_id, {
+            "type": "approval_resolved",
+            "approved": result,
+            "source": "callback",
+        })
+        return result
     except asyncio.CancelledError:
         return False
 

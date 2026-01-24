@@ -2,6 +2,7 @@ const workflowApp = {
     executions: [],
     templates: [],
     selectedExecution: null,
+    selectedTemplatePhases: null,
     ws: null,
     currentFilter: 'all',
     
@@ -12,32 +13,103 @@ const workflowApp = {
     editingPhases: [],
     
     pendingApproval: null,
+    approvalCountdownInterval: null,
+    isLoading: false,
+    wsReconnectAttempts: 0,
+    wsReconnectTimeout: null,
+    maxWsReconnectAttempts: 5,
 
     async init() {
+        this.requestNotificationPermission();
+        this.setupKeyboardHandlers();
         await this.loadTemplates();
         await this.loadExecutions();
         this.updateStats();
+    },
+    
+    setupKeyboardHandlers() {
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeAllModals();
+            }
+            if (e.key === 'n' && !this.isInputFocused() && !this.hasOpenModal()) {
+                e.preventDefault();
+                this.openNewWorkflowModal();
+            }
+            if (e.key === 't' && !this.isInputFocused() && !this.hasOpenModal()) {
+                e.preventDefault();
+                this.openTemplateModal();
+            }
+            if (e.key === 'r' && !this.isInputFocused() && !this.hasOpenModal() && this.selectedExecution?.status === 'pending') {
+                e.preventDefault();
+                this.runExecution(this.selectedExecution.id);
+            }
+        });
+    },
+    
+    isInputFocused() {
+        const active = document.activeElement;
+        return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+    },
+    
+    hasOpenModal() {
+        return document.querySelector('.modal.open') !== null;
+    },
+    
+    closeAllModals() {
+        document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
+        this.hideApprovalBanner();
+    },
+    
+    showToast(message, type = 'info') {
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    },
+    
+    setLoading(loading) {
+        this.isLoading = loading;
+        document.body.classList.toggle('loading', loading);
     },
 
     async loadTemplates() {
         try {
             const response = await fetch('/api/workflow/templates');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             this.templates = data.templates || [];
             this.populateTemplateSelect();
         } catch (error) {
             console.error('Failed to load templates:', error);
+            this.showToast('Failed to load templates', 'error');
         }
     },
 
     async loadExecutions() {
         try {
             const response = await fetch('/api/workflow/executions?limit=100');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             this.executions = data.executions || [];
             this.renderExecutionList();
         } catch (error) {
             console.error('Failed to load executions:', error);
+            this.showToast('Failed to load executions', 'error');
         }
     },
 
@@ -70,21 +142,28 @@ const workflowApp = {
             return;
         }
 
-        container.innerHTML = filtered.map(exec => `
+        container.innerHTML = filtered.map(exec => {
+            const safeDesc = this.escapeHtml(exec.task_description || 'Workflow');
+            const displayStatus = this.selectedExecution?.id === exec.id 
+                ? (this.selectedExecution.status || exec.status) 
+                : exec.status;
+            return `
             <div class="execution-card ${this.selectedExecution?.id === exec.id ? 'active' : ''}" 
-                 onclick="workflowApp.selectExecution('${exec.id}')">
+                 onclick="workflowApp.selectExecution('${this.escapeHtml(exec.id)}')"
+                 data-execution-id="${this.escapeHtml(exec.id)}">
                 <div class="execution-card-header">
-                    <span class="execution-card-title" title="${exec.task_description || 'Workflow'}">
-                        ${this.truncate(exec.task_description || 'Workflow', 25)}
+                    <span class="execution-card-title" title="${safeDesc}">
+                        ${this.truncate(safeDesc, 25)}
                     </span>
-                    <span class="execution-card-status status-${exec.status}">${exec.status}</span>
+                    <span class="execution-card-status status-${displayStatus}">${displayStatus}</span>
                 </div>
+                ${this.renderMiniPipeline(exec)}
                 <div class="execution-card-meta">
                     <span>${this.formatDate(exec.created_at)}</span>
                     <span>${exec.phases_completed || 0}/${exec.phases_total || 0} phases</span>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     },
 
     filterExecutionList(executions) {
@@ -107,21 +186,31 @@ const workflowApp = {
     },
 
     async selectExecution(executionId) {
+        this.setLoading(true);
         try {
             const response = await fetch(`/api/workflow/executions/${executionId}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             this.selectedExecution = data.execution;
             
+            const idx = this.executions.findIndex(e => e.id === executionId);
+            if (idx !== -1) {
+                this.executions[idx] = { ...this.executions[idx], status: data.execution.status };
+            }
+            
             this.renderExecutionList();
-            this.renderPipeline(data.execution, data.artifacts);
+            this.renderPipeline(data.execution, data.artifacts, data.template_phases);
             this.renderBudget(data.budget);
             this.connectWebSocket(executionId);
         } catch (error) {
             console.error('Failed to load execution:', error);
+            this.showToast('Failed to load execution details', 'error');
+        } finally {
+            this.setLoading(false);
         }
     },
 
-    renderPipeline(execution, artifacts) {
+    renderPipeline(execution, artifacts, templatePhases = null) {
         const header = document.getElementById('pipeline-header');
         const view = document.getElementById('pipeline-view');
         
@@ -135,7 +224,25 @@ const workflowApp = {
         const actionsEl = document.getElementById('pipeline-actions');
         actionsEl.innerHTML = this.renderActions(execution);
 
-        if (!execution.phase_executions || execution.phase_executions.length === 0) {
+        const hasExecutedPhases = execution.phase_executions && execution.phase_executions.length > 0;
+        
+        if (!hasExecutedPhases && templatePhases && templatePhases.length > 0) {
+            const pendingPhases = templatePhases.map((p, i) => ({
+                id: p.id,
+                phase_id: p.id,
+                phase_name: p.name,
+                phase_role: p.role,
+                status: 'pending',
+                provider_used: p.provider_config?.provider_type,
+                model_used: p.provider_config?.model_name,
+                order: p.order || i
+            }));
+            const phases = this.groupPhases(pendingPhases);
+            view.innerHTML = `<div class="pipeline-container">${phases}</div>`;
+            return;
+        }
+        
+        if (!hasExecutedPhases) {
             view.innerHTML = `
                 <div class="pipeline-placeholder">
                     <div class="placeholder-icon">⚙</div>
@@ -251,39 +358,78 @@ const workflowApp = {
     },
 
     async runExecution(executionId) {
+        this.setLoading(true);
         try {
-            await fetch(`/api/workflow/executions/${executionId}/run`, { method: 'POST' });
+            const response = await fetch(`/api/workflow/executions/${executionId}/run`, { method: 'POST' });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+            this.showToast('Workflow started', 'success');
             await this.selectExecution(executionId);
         } catch (error) {
             console.error('Failed to run execution:', error);
+            this.showToast(`Failed to start workflow: ${error.message}`, 'error');
+        } finally {
+            this.setLoading(false);
         }
     },
 
     async cancelExecution(executionId) {
+        if (!confirm('Cancel this workflow execution?')) return;
+        
+        this.setLoading(true);
         try {
-            await fetch(`/api/workflow/executions/${executionId}/cancel`, { method: 'POST' });
+            const response = await fetch(`/api/workflow/executions/${executionId}/cancel`, { method: 'POST' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            this.showToast('Workflow cancelled', 'success');
             await this.selectExecution(executionId);
+            await this.loadExecutions();
         } catch (error) {
             console.error('Failed to cancel execution:', error);
+            this.showToast('Failed to cancel workflow', 'error');
+        } finally {
+            this.setLoading(false);
         }
     },
 
     async resumeExecution(executionId) {
+        this.setLoading(true);
         try {
-            await fetch(`/api/workflow/executions/${executionId}/resume`, { method: 'POST' });
+            const response = await fetch(`/api/workflow/executions/${executionId}/resume`, { method: 'POST' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            this.showToast('Workflow resumed', 'success');
             await this.selectExecution(executionId);
         } catch (error) {
             console.error('Failed to resume execution:', error);
+            this.showToast('Failed to resume workflow', 'error');
+        } finally {
+            this.setLoading(false);
         }
     },
 
     connectWebSocket(executionId) {
+        if (this.wsReconnectTimeout) {
+            clearTimeout(this.wsReconnectTimeout);
+            this.wsReconnectTimeout = null;
+        }
+        
         if (this.ws) {
+            this.ws.onclose = null;
             this.ws.close();
         }
-
+        
+        this.wsReconnectAttempts = 0;
+        this._connectWebSocket(executionId);
+    },
+    
+    _connectWebSocket(executionId) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         this.ws = new WebSocket(`${protocol}//${window.location.host}/api/workflow/ws/${executionId}`);
+
+        this.ws.onopen = () => {
+            this.wsReconnectAttempts = 0;
+        };
 
         this.ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
@@ -293,30 +439,60 @@ const workflowApp = {
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
         };
+        
+        this.ws.onclose = (event) => {
+            this.hideApprovalBanner();
+            
+            if (this.selectedExecution?.id === executionId && 
+                this.wsReconnectAttempts < this.maxWsReconnectAttempts) {
+                this.wsReconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
+                console.log(`WebSocket closed, reconnecting in ${delay}ms (attempt ${this.wsReconnectAttempts})`);
+                this.wsReconnectTimeout = setTimeout(() => {
+                    this._connectWebSocket(executionId);
+                }, delay);
+            }
+        };
     },
 
     handleWebSocketMessage(data) {
         if (data.type === 'phase_update' || data.type === 'execution_update' || 
             data.type === 'status_update' || data.type === 'phase_complete') {
             this.selectExecution(this.selectedExecution.id);
+            if (data.type === 'status_update' && data.status) {
+                const idx = this.executions.findIndex(e => e.id === this.selectedExecution?.id);
+                if (idx !== -1) {
+                    this.executions[idx].status = data.status;
+                    this.renderExecutionList();
+                    this.updateStats();
+                }
+            }
         }
         if (data.type === 'init') {
-            this.renderPipeline(data.execution, []);
+            this.renderPipeline(data.execution, [], data.template_phases);
             if (data.pending_approval) {
-                this.showApprovalBanner(data.pending_approval.message);
+                this.showApprovalBanner(data.pending_approval.message, data.pending_approval.timeout_seconds);
             }
         }
         if (data.type === 'approval_needed') {
-            this.showApprovalBanner(data.message);
+            this.showApprovalBanner(data.message, data.timeout_seconds);
+            this.showBrowserNotification('Approval Required', data.message);
         }
         if (data.type === 'approval_resolved') {
             this.hideApprovalBanner();
             this.selectExecution(this.selectedExecution.id);
         }
+        if (data.type === 'budget_update' && data.budget) {
+            this.renderBudget(data.budget);
+        }
     },
     
-    showApprovalBanner(message) {
-        this.pendingApproval = { message };
+    showApprovalBanner(message, timeoutSeconds = 300) {
+        this.pendingApproval = { message, timeoutSeconds, startedAt: Date.now() };
+        
+        if (this.approvalCountdownInterval) {
+            clearInterval(this.approvalCountdownInterval);
+        }
         
         let banner = document.getElementById('approval-banner');
         if (!banner) {
@@ -330,28 +506,74 @@ const workflowApp = {
             }
         }
         
-        banner.innerHTML = `
-            <div class="approval-banner-content">
-                <div class="approval-icon">⚠️</div>
-                <div class="approval-message">
-                    <strong>Approval Required</strong>
-                    <p>${this.escapeHtml(message)}</p>
+        const updateBanner = () => {
+            const elapsed = (Date.now() - this.pendingApproval.startedAt) / 1000;
+            const remaining = Math.max(0, timeoutSeconds - elapsed);
+            const mins = Math.floor(remaining / 60);
+            const secs = Math.floor(remaining % 60);
+            const timeDisplay = remaining > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : 'Expired';
+            
+            banner.innerHTML = `
+                <div class="approval-banner-content">
+                    <div class="approval-icon">⚠️</div>
+                    <div class="approval-message">
+                        <strong>Approval Required</strong>
+                        <span class="approval-timer">${timeDisplay}</span>
+                        <p>${this.escapeHtml(message)}</p>
+                    </div>
+                    <div class="approval-actions">
+                        <button class="btn btn-primary" onclick="workflowApp.respondToApproval(true)">Approve</button>
+                        <button class="btn btn-danger" onclick="workflowApp.respondToApproval(false)">Reject</button>
+                    </div>
                 </div>
-                <div class="approval-actions">
-                    <button class="btn btn-primary" onclick="workflowApp.respondToApproval(true)">Approve</button>
-                    <button class="btn btn-danger" onclick="workflowApp.respondToApproval(false)">Reject</button>
-                </div>
-            </div>
-        `;
+            `;
+            
+            if (remaining <= 0) {
+                this.showToast('Approval request timed out', 'warning');
+                clearInterval(this.approvalCountdownInterval);
+                this.hideApprovalBanner();
+            }
+        };
+        
+        updateBanner();
+        this.approvalCountdownInterval = setInterval(updateBanner, 1000);
         banner.style.display = 'flex';
     },
     
     hideApprovalBanner() {
         this.pendingApproval = null;
+        if (this.approvalCountdownInterval) {
+            clearInterval(this.approvalCountdownInterval);
+            this.approvalCountdownInterval = null;
+        }
         const banner = document.getElementById('approval-banner');
         if (banner) {
             banner.style.display = 'none';
         }
+    },
+    
+    requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    },
+    
+    showBrowserNotification(title, body) {
+        if (!('Notification' in window)) return;
+        if (Notification.permission !== 'granted') return;
+        if (document.hasFocus()) return;
+        
+        const notification = new Notification(title, {
+            body: body.substring(0, 100),
+            icon: '/static/favicon.ico',
+            tag: 'workflow-approval',
+            requireInteraction: true
+        });
+        
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
     },
     
     async respondToApproval(approved) {
@@ -602,6 +824,25 @@ const workflowApp = {
         return str.length > len ? str.substring(0, len) + '...' : str;
     },
 
+    renderMiniPipeline(exec) {
+        const total = exec.phases_total || 0;
+        const completed = exec.phases_completed || 0;
+        if (total === 0) return '';
+        
+        const dots = [];
+        for (let i = 0; i < Math.min(total, 8); i++) {
+            let status = 'pending';
+            if (i < completed) status = 'completed';
+            else if (i === completed && exec.status === 'running') status = 'running';
+            else if (exec.status === 'failed' && i === completed) status = 'failed';
+            dots.push(`<span class="mini-phase mini-phase-${status}"></span>`);
+        }
+        if (total > 8) {
+            dots.push(`<span class="mini-phase-more">+${total - 8}</span>`);
+        }
+        return `<div class="mini-pipeline">${dots.join('')}</div>`;
+    },
+
     escapeHtml(str) {
         const div = document.createElement('div');
         div.textContent = str;
@@ -638,13 +879,23 @@ const workflowApp = {
                 return;
             }
             
-            list.innerHTML = data.dirs.map(dir => `
-                <div class="browse-item" ondblclick="workflowApp.browseTo('${dir.path.replace(/'/g, "\\'")}')">
+            list.innerHTML = data.dirs.map((dir, index) => `
+                <div class="browse-item" data-path-index="${index}">
                     <span class="browse-item-icon">${dir.is_git ? '📁' : '📂'}</span>
-                    <span class="browse-item-name">${dir.name}</span>
+                    <span class="browse-item-name">${this.escapeHtml(dir.name)}</span>
                     ${dir.is_git ? '<span class="browse-item-git">git</span>' : ''}
                 </div>
             `).join('');
+            
+            this._browseDirs = data.dirs;
+            list.querySelectorAll('.browse-item').forEach(item => {
+                item.addEventListener('dblclick', () => {
+                    const idx = parseInt(item.dataset.pathIndex);
+                    if (this._browseDirs[idx]) {
+                        this.browseTo(this._browseDirs[idx].path);
+                    }
+                });
+            });
         } catch (error) {
             console.error('Failed to browse:', error);
         }
