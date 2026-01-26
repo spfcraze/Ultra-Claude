@@ -6,6 +6,7 @@ from .gemini_oauth import GeminiOAuthProvider
 from .openai import OpenAIProvider, OpenRouterProvider
 from .ollama import OllamaProvider, detect_ollama
 from .lm_studio import LMStudioProvider, detect_lm_studio
+from .sdk_provider import ClaudeSDKProvider, SDKGenerationResult
 from .registry import ModelRegistry
 
 __all__ = [
@@ -22,6 +23,8 @@ __all__ = [
     "OpenRouterProvider",
     "OllamaProvider",
     "LMStudioProvider",
+    "ClaudeSDKProvider",
+    "SDKGenerationResult",
     # Detection
     "detect_ollama",
     "detect_lm_studio",

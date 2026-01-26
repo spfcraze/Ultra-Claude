@@ -15,6 +15,10 @@ from .models import (
 )
 from .github_client import get_github_client, GitHubError, GitHubAuthError, GitHubNotFoundError
 from .workflow.api import router as workflow_router
+from .scheduler import task_scheduler, ScheduledTask, TaskType
+from .webhooks import webhook_handler, WebhookConfig
+from .notifications import notification_manager, NotificationConfig, NotificationChannel, NotificationEvent, ChannelConfig
+from .daemon import daemon_manager
 
 setup_logging()
 logger = get_logger("ultraclaude.server")
@@ -106,9 +110,36 @@ async def startup_event():
     """Recover state and start output readers for any reconnected tmux sessions"""
     await manager.start_output_readers()
     await automation_controller.recover_interrupted_sessions()
-    
+
     from .workflow.engine import workflow_orchestrator
     await workflow_orchestrator.recover_interrupted_executions()
+
+    # Start the task scheduler
+    task_scheduler.setup_default_tasks()
+    task_scheduler.start()
+    logger.info("Task scheduler started with default tasks")
+
+    # Set up notification callbacks for automation events
+    async def on_notification_event(event_type: str, data: dict):
+        """Forward automation events to notification system"""
+        event_map = {
+            "issue_started": NotificationEvent.ISSUE_STARTED,
+            "issue_completed": NotificationEvent.ISSUE_COMPLETED,
+            "issue_failed": NotificationEvent.ISSUE_FAILED,
+            "pr_created": NotificationEvent.PR_CREATED,
+            "session_error": NotificationEvent.SESSION_ERROR,
+        }
+        if event_type in event_map:
+            await notification_manager.notify(event_map[event_type], data)
+
+    automation_controller.add_event_callback(on_notification_event)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Graceful shutdown"""
+    task_scheduler.stop()
+    logger.info("Task scheduler stopped")
 
 
 @app.get("/health")
@@ -214,6 +245,18 @@ async def get_version():
     return {
         "version": __version__,
         "repo": "https://github.com/spfcraze/Ultra-Claude",
+    }
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for monitoring."""
+    from src import __version__
+    return {
+        "status": "healthy",
+        "version": __version__,
+        "scheduler": task_scheduler.is_running() if task_scheduler else False,
+        "websocket_connections": len(ws_manager.active_connections),
     }
 
 
@@ -1567,6 +1610,510 @@ async def list_openrouter_models(api_key: str = None):
             "success": False,
             "error": str(e)
         }
+
+
+# ==================== Settings Page ====================
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Settings and configuration page"""
+    return templates.TemplateResponse("settings.html", {"request": request})
+
+
+# ==================== Daemon Management Endpoints ====================
+
+@app.get("/api/daemon/status")
+async def get_daemon_status():
+    """Get daemon status"""
+    status = await daemon_manager.get_status()
+    return status.to_dict()
+
+
+@app.post("/api/daemon/install")
+async def install_daemon():
+    """Install UltraClaude as a system daemon"""
+    result = await daemon_manager.install()
+    return result
+
+
+@app.post("/api/daemon/uninstall")
+async def uninstall_daemon():
+    """Uninstall the system daemon"""
+    result = await daemon_manager.uninstall()
+    return result
+
+
+@app.post("/api/daemon/start")
+async def start_daemon():
+    """Start the daemon service"""
+    result = await daemon_manager.start()
+    return result
+
+
+@app.post("/api/daemon/stop")
+async def stop_daemon():
+    """Stop the daemon service"""
+    result = await daemon_manager.stop()
+    return result
+
+
+@app.post("/api/daemon/restart")
+async def restart_daemon():
+    """Restart the daemon service"""
+    result = await daemon_manager.restart()
+    return result
+
+
+@app.get("/api/daemon/logs")
+async def get_daemon_logs(lines: int = 100):
+    """Get daemon logs"""
+    logs = daemon_manager.get_logs(lines)
+    return {"logs": logs}
+
+
+# ==================== Scheduler Endpoints ====================
+
+@app.get("/api/scheduler/status")
+async def get_scheduler_status():
+    """Get scheduler status and all tasks"""
+    return task_scheduler.get_status()
+
+
+@app.get("/api/scheduler/tasks")
+async def get_scheduler_tasks():
+    """Get all scheduled tasks"""
+    return {"tasks": [t.to_dict() for t in task_scheduler.get_all_tasks()]}
+
+
+@app.get("/api/scheduler/tasks/{task_id}")
+async def get_scheduler_task(task_id: str):
+    """Get a specific scheduled task"""
+    task = task_scheduler.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": task.to_dict()}
+
+
+class ScheduledTaskCreate(BaseModel):
+    name: str
+    task_type: str  # issue_sync, health_check, session_cleanup, auto_retry, pr_status_check, custom
+    schedule: str  # Cron expression or interval (e.g., "*/15 * * * *" or "15m")
+    enabled: bool = True
+    project_id: Optional[int] = None
+    config: Optional[dict] = None
+
+
+@app.post("/api/scheduler/tasks")
+async def create_scheduler_task(task_data: ScheduledTaskCreate):
+    """Create a new scheduled task"""
+    import uuid
+
+    # Map task type string to enum
+    type_map = {
+        "issue_sync": TaskType.ISSUE_SYNC,
+        "health_check": TaskType.HEALTH_CHECK,
+        "session_cleanup": TaskType.SESSION_CLEANUP,
+        "auto_retry": TaskType.AUTO_RETRY,
+        "pr_status_check": TaskType.PR_STATUS_CHECK,
+        "custom": TaskType.CUSTOM,
+    }
+
+    if task_data.task_type not in type_map:
+        raise HTTPException(status_code=400, detail=f"Invalid task type: {task_data.task_type}")
+
+    task = ScheduledTask(
+        id=f"custom_{uuid.uuid4().hex[:8]}",
+        name=task_data.name,
+        task_type=type_map[task_data.task_type],
+        schedule=task_data.schedule,
+        enabled=task_data.enabled,
+        project_id=task_data.project_id,
+        config=task_data.config or {},
+    )
+
+    task_scheduler.add_task(task)
+    return {"success": True, "task": task.to_dict()}
+
+
+@app.put("/api/scheduler/tasks/{task_id}/enable")
+async def enable_scheduler_task(task_id: str):
+    """Enable a scheduled task"""
+    if not task_scheduler.enable_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    task = task_scheduler.get_task(task_id)
+    return {"success": True, "task": task.to_dict() if task else None}
+
+
+@app.put("/api/scheduler/tasks/{task_id}/disable")
+async def disable_scheduler_task(task_id: str):
+    """Disable a scheduled task"""
+    if not task_scheduler.disable_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    task = task_scheduler.get_task(task_id)
+    return {"success": True, "task": task.to_dict() if task else None}
+
+
+@app.post("/api/scheduler/tasks/{task_id}/run")
+async def run_scheduler_task_now(task_id: str):
+    """Run a scheduled task immediately"""
+    if not task_scheduler.run_task_now(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"success": True, "message": "Task triggered"}
+
+
+@app.delete("/api/scheduler/tasks/{task_id}")
+async def delete_scheduler_task(task_id: str):
+    """Delete a scheduled task"""
+    # Don't allow deleting global tasks
+    if task_id.startswith("global_"):
+        raise HTTPException(status_code=400, detail="Cannot delete built-in global tasks")
+    if not task_scheduler.remove_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"success": True}
+
+
+# ==================== Webhook Endpoints ====================
+
+@app.get("/api/webhooks/status")
+async def get_webhooks_status():
+    """Get webhook handler status"""
+    return webhook_handler.get_status()
+
+
+@app.get("/api/webhooks/events")
+async def get_webhook_events(limit: int = 100):
+    """Get recent webhook events"""
+    return {"events": webhook_handler.get_event_log(limit)}
+
+
+@app.get("/api/projects/{project_id}/webhooks")
+async def get_project_webhook_config(project_id: int):
+    """Get webhook configuration for a project"""
+    project = project_manager.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    config = webhook_handler.get_config(project_id)
+    if not config:
+        # Return default config
+        config = WebhookConfig(project_id=project_id)
+
+    return {"config": config.to_dict()}
+
+
+class WebhookConfigUpdate(BaseModel):
+    enabled: bool = True
+    github_secret: Optional[str] = None
+    auto_queue_issues: bool = True
+    auto_start_on_label: str = ""
+    trigger_labels: List[str] = []
+    ignore_labels: List[str] = []
+
+
+@app.put("/api/projects/{project_id}/webhooks")
+async def update_project_webhook_config(project_id: int, config_data: WebhookConfigUpdate):
+    """Update webhook configuration for a project"""
+    project = project_manager.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    config = WebhookConfig(
+        project_id=project_id,
+        enabled=config_data.enabled,
+        github_secret=config_data.github_secret or "",
+        auto_queue_issues=config_data.auto_queue_issues,
+        auto_start_on_label=config_data.auto_start_on_label,
+        trigger_labels=config_data.trigger_labels,
+        ignore_labels=config_data.ignore_labels,
+    )
+
+    webhook_handler.set_config(config)
+    return {"success": True, "config": config.to_dict()}
+
+
+@app.get("/api/projects/{project_id}/webhooks/events")
+async def get_project_webhook_events(project_id: int, limit: int = 50):
+    """Get webhook events for a specific project"""
+    project = project_manager.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    events = webhook_handler.get_events_by_project(project_id, limit)
+    return {"events": events}
+
+
+@app.post("/webhooks/github")
+async def github_webhook_endpoint(request: Request):
+    """Receive GitHub webhook events"""
+    # Get headers
+    event_type = request.headers.get("x-github-event", "")
+    signature = request.headers.get("x-hub-signature-256", request.headers.get("x-hub-signature", ""))
+
+    # Get raw payload for signature verification
+    raw_payload = await request.body()
+
+    # Parse JSON payload
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # Process the webhook
+    result = await webhook_handler.process_github_webhook(
+        event_type=event_type,
+        payload=payload,
+        headers=dict(request.headers),
+        raw_payload=raw_payload
+    )
+
+    if not result.get("success"):
+        # Return 200 even for ignored events (GitHub expects 2xx)
+        return result
+
+    return result
+
+
+@app.post("/webhooks/custom/{path:path}")
+async def custom_webhook_endpoint(path: str, request: Request):
+    """Receive custom webhook events"""
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    result = await webhook_handler.process_custom_webhook(
+        path=path,
+        payload=payload,
+        headers=dict(request.headers)
+    )
+
+    return result
+
+
+# ==================== Notification Endpoints ====================
+
+@app.get("/api/notifications/status")
+async def get_notifications_status():
+    """Get notification system status"""
+    return notification_manager.get_status()
+
+
+@app.get("/api/notifications/configs")
+async def get_notification_configs():
+    """Get all notification configurations"""
+    configs = notification_manager.get_all_configs()
+    return {"configs": [c.to_dict() for c in configs]}
+
+
+@app.get("/api/notifications/configs/{config_id}")
+async def get_notification_config(config_id: str):
+    """Get a specific notification configuration"""
+    config = notification_manager.get_config(config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return {"config": config.to_dict()}
+
+
+class NotificationConfigCreate(BaseModel):
+    name: str
+    channel: str  # discord, slack, email, desktop
+    enabled: bool = True
+    project_id: Optional[int] = None  # None = global
+    events: List[str] = []  # Events to trigger notifications for
+    # Channel-specific settings
+    webhook_url: Optional[str] = None  # For Discord/Slack
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+    smtp_to: Optional[List[str]] = None
+    smtp_use_tls: bool = True
+
+
+@app.post("/api/notifications/configs")
+async def create_notification_config(config_data: NotificationConfigCreate):
+    """Create a new notification configuration"""
+    import uuid
+
+    # Map channel string to enum
+    channel_map = {
+        "discord": NotificationChannel.DISCORD,
+        "slack": NotificationChannel.SLACK,
+        "email": NotificationChannel.EMAIL,
+        "desktop": NotificationChannel.DESKTOP,
+    }
+
+    if config_data.channel not in channel_map:
+        raise HTTPException(status_code=400, detail=f"Invalid channel: {config_data.channel}")
+
+    # Map event strings to enum
+    event_map = {
+        "issue.started": NotificationEvent.ISSUE_STARTED,
+        "issue.completed": NotificationEvent.ISSUE_COMPLETED,
+        "issue.failed": NotificationEvent.ISSUE_FAILED,
+        "issue.needs_review": NotificationEvent.ISSUE_NEEDS_REVIEW,
+        "issue.queued": NotificationEvent.ISSUE_QUEUED,
+        "pr.created": NotificationEvent.PR_CREATED,
+        "pr.merged": NotificationEvent.PR_MERGED,
+        "session.error": NotificationEvent.SESSION_ERROR,
+        "session.needs_attention": NotificationEvent.SESSION_NEEDS_ATTENTION,
+        "system.update_available": NotificationEvent.SYSTEM_UPDATE_AVAILABLE,
+        "system.health_warning": NotificationEvent.SYSTEM_HEALTH_WARNING,
+    }
+
+    events = []
+    for event_str in config_data.events:
+        if event_str in event_map:
+            events.append(event_map[event_str])
+
+    # Build settings dict based on channel
+    settings = {}
+    if config_data.channel in ("discord", "slack"):
+        settings["webhook_url"] = config_data.webhook_url or ""
+    elif config_data.channel == "email":
+        settings["smtp_host"] = config_data.smtp_host or ""
+        settings["smtp_port"] = config_data.smtp_port
+        settings["smtp_user"] = config_data.smtp_user or ""
+        settings["smtp_password"] = config_data.smtp_password or ""
+        settings["smtp_from"] = config_data.smtp_from or ""
+        settings["smtp_to"] = config_data.smtp_to or []
+        settings["smtp_use_tls"] = config_data.smtp_use_tls
+
+    config = ChannelConfig(
+        id=f"notif_{uuid.uuid4().hex[:8]}",
+        name=config_data.name,
+        channel=channel_map[config_data.channel],
+        enabled=config_data.enabled,
+        project_id=config_data.project_id,
+        events=[e.value for e in events],
+        settings=settings,
+    )
+
+    notification_manager.add_config(config)
+    return {"success": True, "config": config.to_dict()}
+
+
+@app.put("/api/notifications/configs/{config_id}")
+async def update_notification_config(config_id: str, config_data: NotificationConfigCreate):
+    """Update a notification configuration"""
+    existing = notification_manager.get_config(config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+
+    # Map channel string to enum
+    channel_map = {
+        "discord": NotificationChannel.DISCORD,
+        "slack": NotificationChannel.SLACK,
+        "email": NotificationChannel.EMAIL,
+        "desktop": NotificationChannel.DESKTOP,
+    }
+
+    # Map event strings to enum
+    event_map = {
+        "issue.started": NotificationEvent.ISSUE_STARTED,
+        "issue.completed": NotificationEvent.ISSUE_COMPLETED,
+        "issue.failed": NotificationEvent.ISSUE_FAILED,
+        "issue.needs_review": NotificationEvent.ISSUE_NEEDS_REVIEW,
+        "issue.queued": NotificationEvent.ISSUE_QUEUED,
+        "pr.created": NotificationEvent.PR_CREATED,
+        "pr.merged": NotificationEvent.PR_MERGED,
+        "session.error": NotificationEvent.SESSION_ERROR,
+        "session.needs_attention": NotificationEvent.SESSION_NEEDS_ATTENTION,
+        "system.update_available": NotificationEvent.SYSTEM_UPDATE_AVAILABLE,
+        "system.health_warning": NotificationEvent.SYSTEM_HEALTH_WARNING,
+    }
+
+    events = []
+    for event_str in config_data.events:
+        if event_str in event_map:
+            events.append(event_map[event_str])
+
+    # Build settings dict based on channel
+    settings = {}
+    if config_data.channel in ("discord", "slack"):
+        settings["webhook_url"] = config_data.webhook_url or ""
+    elif config_data.channel == "email":
+        settings["smtp_host"] = config_data.smtp_host or ""
+        settings["smtp_port"] = config_data.smtp_port
+        settings["smtp_user"] = config_data.smtp_user or ""
+        settings["smtp_password"] = config_data.smtp_password or ""
+        settings["smtp_from"] = config_data.smtp_from or ""
+        settings["smtp_to"] = config_data.smtp_to or []
+        settings["smtp_use_tls"] = config_data.smtp_use_tls
+
+    # Update the config
+    existing.name = config_data.name
+    existing.channel = channel_map[config_data.channel]
+    existing.enabled = config_data.enabled
+    existing.project_id = config_data.project_id
+    existing.events = [e.value for e in events]
+    existing.settings = settings
+
+    # Re-sync to legacy config
+    notification_manager._sync_to_legacy_config(existing)
+
+    return {"success": True, "config": existing.to_dict()}
+
+
+@app.delete("/api/notifications/configs/{config_id}")
+async def delete_notification_config(config_id: str):
+    """Delete a notification configuration"""
+    if not notification_manager.remove_config(config_id):
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return {"success": True}
+
+
+@app.post("/api/notifications/configs/{config_id}/test")
+async def test_notification_config(config_id: str):
+    """Send a test notification"""
+    config = notification_manager.get_config(config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+
+    success = await notification_manager.send_test(config)
+    return {"success": success}
+
+
+@app.get("/api/notifications/log")
+async def get_notification_log(limit: int = 100):
+    """Get notification log"""
+    return {"notifications": notification_manager.get_log(limit)}
+
+
+# ==================== System Settings Endpoints ====================
+
+@app.get("/api/settings")
+async def get_system_settings():
+    """Get all system settings"""
+    from .database import db
+
+    settings = db.get_all_settings()
+    return {"settings": settings}
+
+
+@app.get("/api/settings/{key}")
+async def get_system_setting(key: str):
+    """Get a specific system setting"""
+    from .database import db
+
+    value = db.get_setting(key)
+    if value is None:
+        raise HTTPException(status_code=404, detail="Setting not found")
+    return {"key": key, "value": value}
+
+
+class SettingUpdate(BaseModel):
+    value: str
+
+
+@app.put("/api/settings/{key}")
+async def update_system_setting(key: str, setting: SettingUpdate):
+    """Update a system setting"""
+    from .database import db
+
+    db.set_setting(key, setting.value)
+    return {"success": True, "key": key, "value": setting.value}
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8420):

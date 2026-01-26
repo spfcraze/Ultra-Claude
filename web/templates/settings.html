@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UltraClaude - Settings</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/settings.css">
+    <script src="/static/js/updater.js" defer></script>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
+                    <span class="logo-icon">⚡</span>
+                    <span class="logo-text">UltraClaude</span>
+                </a>
+            </div>
+            <nav class="nav-tabs">
+                <a href="/" class="nav-tab">Sessions</a>
+                <a href="/projects" class="nav-tab">Projects</a>
+                <a href="/issues" class="nav-tab">Issues</a>
+                <a href="/workflows" class="nav-tab">Workflows</a>
+                <a href="/settings" class="nav-tab active">Settings</a>
+            </nav>
+            <div class="header-status" id="header-status">
+                <span class="status-dot" id="daemon-status-dot"></span>
+                <span id="daemon-status-text">Checking...</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="settings-main">
+            <!-- Settings Navigation -->
+            <div class="settings-nav">
+                <button class="settings-nav-item active" data-tab="daemon" onclick="switchTab('daemon')">
+                    <span class="nav-icon">🔄</span>
+                    <span class="nav-label">Daemon Mode</span>
+                    <span class="nav-description">24/7 Operation</span>
+                </button>
+                <button class="settings-nav-item" data-tab="scheduler" onclick="switchTab('scheduler')">
+                    <span class="nav-icon">⏰</span>
+                    <span class="nav-label">Scheduler</span>
+                    <span class="nav-description">Automated Tasks</span>
+                </button>
+                <button class="settings-nav-item" data-tab="notifications" onclick="switchTab('notifications')">
+                    <span class="nav-icon">🔔</span>
+                    <span class="nav-label">Notifications</span>
+                    <span class="nav-description">Discord, Slack, Email</span>
+                </button>
+                <button class="settings-nav-item" data-tab="webhooks" onclick="switchTab('webhooks')">
+                    <span class="nav-icon">🪝</span>
+                    <span class="nav-label">Webhooks</span>
+                    <span class="nav-description">GitHub Integration</span>
+                </button>
+                <button class="settings-nav-item" data-tab="system" onclick="switchTab('system')">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">System</span>
+                    <span class="nav-description">General Settings</span>
+                </button>
+            </div>
+
+            <!-- Settings Content -->
+            <div class="settings-content">
+                <!-- Daemon Mode Tab -->
+                <div class="settings-tab active" id="tab-daemon">
+                    <div class="settings-section">
+                        <h2>Daemon Mode (24/7 Operation)</h2>
+                        <p class="section-description">
+                            Run UltraClaude as a system service that starts automatically on boot and runs continuously in the background.
+                            This enables true 24/7 automation for processing GitHub issues.
+                        </p>
+
+                        <div class="daemon-status-card" id="daemon-status-card">
+                            <div class="status-header">
+                                <h3>Service Status</h3>
+                                <span class="status-badge" id="daemon-badge">Unknown</span>
+                            </div>
+                            <div class="status-details">
+                                <div class="status-row">
+                                    <span class="label">Platform:</span>
+                                    <span class="value" id="daemon-platform">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Service Type:</span>
+                                    <span class="value" id="daemon-service-type">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Installed:</span>
+                                    <span class="value" id="daemon-installed">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Running:</span>
+                                    <span class="value" id="daemon-running">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Uptime:</span>
+                                    <span class="value" id="daemon-uptime">-</span>
+                                </div>
+                            </div>
+                            <div class="status-actions">
+                                <button class="btn btn-primary" id="daemon-install-btn" onclick="installDaemon()">Install Service</button>
+                                <button class="btn" id="daemon-start-btn" onclick="startDaemon()" disabled>Start</button>
+                                <button class="btn" id="daemon-stop-btn" onclick="stopDaemon()" disabled>Stop</button>
+                                <button class="btn" id="daemon-restart-btn" onclick="restartDaemon()" disabled>Restart</button>
+                                <button class="btn btn-danger" id="daemon-uninstall-btn" onclick="uninstallDaemon()" disabled>Uninstall</button>
+                            </div>
+                        </div>
+
+                        <div class="setup-guide">
+                            <h3>Setup Guide</h3>
+                            <div class="guide-steps">
+                                <div class="guide-step">
+                                    <span class="step-number">1</span>
+                                    <div class="step-content">
+                                        <h4>Install the Service</h4>
+                                        <p>Click "Install Service" to register UltraClaude as a system service. This creates the necessary service files for your platform (systemd on Linux, launchd on macOS).</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">2</span>
+                                    <div class="step-content">
+                                        <h4>Start the Service</h4>
+                                        <p>Once installed, click "Start" to begin running UltraClaude in the background. The service will automatically start on system boot.</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">3</span>
+                                    <div class="step-content">
+                                        <h4>Configure Projects</h4>
+                                        <p>Set up your projects with GitHub webhooks to receive automatic issue notifications. Enable "Auto-start" on projects for fully automated processing.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="logs-section">
+                            <h3>Service Logs</h3>
+                            <div class="logs-controls">
+                                <button class="btn btn-small" onclick="refreshDaemonLogs()">Refresh Logs</button>
+                                <select id="log-lines" onchange="refreshDaemonLogs()">
+                                    <option value="50">Last 50 lines</option>
+                                    <option value="100" selected>Last 100 lines</option>
+                                    <option value="500">Last 500 lines</option>
+                                </select>
+                            </div>
+                            <pre class="logs-output" id="daemon-logs">Loading logs...</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scheduler Tab -->
+                <div class="settings-tab" id="tab-scheduler">
+                    <div class="settings-section">
+                        <h2>Task Scheduler</h2>
+                        <p class="section-description">
+                            Configure automated tasks that run on a schedule. These include syncing issues from GitHub,
+                            health checks, automatic retries, and cleanup tasks.
+                        </p>
+
+                        <div class="scheduler-status">
+                            <div class="status-indicator">
+                                <span class="status-dot" id="scheduler-status-dot"></span>
+                                <span id="scheduler-status-text">Checking...</span>
+                            </div>
+                            <span class="task-count" id="active-task-count">0 active tasks</span>
+                        </div>
+
+                        <div class="tasks-list" id="tasks-list">
+                            <!-- Tasks will be injected here -->
+                        </div>
+
+                        <div class="add-task-section">
+                            <h3>Add Custom Task</h3>
+                            <form id="add-task-form" onsubmit="handleAddTask(event)">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="task-name">Task Name</label>
+                                        <input type="text" id="task-name" placeholder="My Custom Task" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="task-type">Task Type</label>
+                                        <select id="task-type" required>
+                                            <option value="issue_sync">Issue Sync</option>
+                                            <option value="health_check">Health Check</option>
+                                            <option value="session_cleanup">Session Cleanup</option>
+                                            <option value="auto_retry">Auto Retry</option>
+                                            <option value="pr_status_check">PR Status Check</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="task-schedule">Schedule</label>
+                                        <input type="text" id="task-schedule" placeholder="15m or */15 * * * *" required>
+                                        <span class="form-hint">Interval (15m, 1h, 1d) or cron expression</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="task-project">Project (optional)</label>
+                                        <select id="task-project">
+                                            <option value="">All Projects</option>
+                                            <!-- Projects loaded dynamically -->
+                                        </select>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Add Task</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notifications Tab -->
+                <div class="settings-tab" id="tab-notifications">
+                    <div class="settings-section">
+                        <h2>Notifications</h2>
+                        <p class="section-description">
+                            Configure notifications to stay informed about automation events. Receive alerts when issues
+                            are started, completed, or fail, and when PRs are created or merged.
+                        </p>
+
+                        <div class="notification-configs" id="notification-configs">
+                            <!-- Configs will be injected here -->
+                        </div>
+
+                        <button class="btn btn-primary" onclick="showAddNotificationModal()">
+                            + Add Notification Channel
+                        </button>
+
+                        <div class="notification-log-section">
+                            <h3>Recent Notifications</h3>
+                            <div class="notification-log" id="notification-log">
+                                <!-- Log entries will be injected here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Webhooks Tab -->
+                <div class="settings-tab" id="tab-webhooks">
+                    <div class="settings-section">
+                        <h2>Webhooks</h2>
+                        <p class="section-description">
+                            UltraClaude can receive webhooks from GitHub to automatically process new issues and track PR status.
+                            Configure webhooks in each project's settings after setting up the endpoint in GitHub.
+                        </p>
+
+                        <div class="webhook-status-card">
+                            <h3>Webhook Endpoint</h3>
+                            <div class="endpoint-info">
+                                <code id="webhook-url">http://your-server:8420/webhooks/github</code>
+                                <button class="btn btn-small" onclick="copyWebhookUrl()">Copy</button>
+                            </div>
+                            <p class="form-hint">Add this URL to your GitHub repository's webhook settings. Select events: Issues, Pull Requests.</p>
+                        </div>
+
+                        <div class="webhook-stats">
+                            <div class="stat-card">
+                                <span class="stat-value" id="webhook-enabled-count">0</span>
+                                <span class="stat-label">Projects with Webhooks</span>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-value" id="webhook-event-count">0</span>
+                                <span class="stat-label">Total Events Received</span>
+                            </div>
+                        </div>
+
+                        <div class="webhook-events-section">
+                            <h3>Recent Webhook Events</h3>
+                            <div class="events-list" id="webhook-events-list">
+                                <!-- Events will be injected here -->
+                            </div>
+                        </div>
+
+                        <div class="setup-guide">
+                            <h3>GitHub Webhook Setup</h3>
+                            <div class="guide-steps">
+                                <div class="guide-step">
+                                    <span class="step-number">1</span>
+                                    <div class="step-content">
+                                        <h4>Go to Repository Settings</h4>
+                                        <p>Navigate to your GitHub repository > Settings > Webhooks > Add webhook</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">2</span>
+                                    <div class="step-content">
+                                        <h4>Configure Webhook</h4>
+                                        <p>Payload URL: Copy the endpoint above. Content type: application/json. Secret: Set in project webhook settings.</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">3</span>
+                                    <div class="step-content">
+                                        <h4>Select Events</h4>
+                                        <p>Choose "Let me select individual events" and enable: Issues, Pull requests</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Tab -->
+                <div class="settings-tab" id="tab-system">
+                    <div class="settings-section">
+                        <h2>System Settings</h2>
+                        <p class="section-description">
+                            General system configuration and information.
+                        </p>
+
+                        <div class="system-info">
+                            <h3>Version Information</h3>
+                            <div class="info-grid">
+                                <div class="info-row">
+                                    <span class="label">Version:</span>
+                                    <span class="value" id="sys-version">-</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Server Port:</span>
+                                    <span class="value">8420</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Working Directory:</span>
+                                    <span class="value" id="sys-working-dir">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="update-section">
+                            <h3>Updates</h3>
+                            <div id="update-status">
+                                <p>Checking for updates...</p>
+                            </div>
+                            <button class="btn" onclick="checkForUpdates()">Check for Updates</button>
+                        </div>
+
+                        <div class="health-section">
+                            <h3>System Health</h3>
+                            <div class="health-grid" id="health-grid">
+                                <!-- Health checks will be injected here -->
+                            </div>
+                            <button class="btn" onclick="refreshHealth()">Refresh Health</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Notification Modal -->
+    <div class="modal" id="add-notification-modal">
+        <div class="modal-content modal-large">
+            <h3>Add Notification Channel</h3>
+            <form id="add-notification-form" onsubmit="handleAddNotification(event)">
+                <div class="form-group">
+                    <label for="notif-name">Name</label>
+                    <input type="text" id="notif-name" placeholder="My Discord Notifications" required>
+                </div>
+                <div class="form-group">
+                    <label for="notif-channel">Channel</label>
+                    <select id="notif-channel" required onchange="toggleNotificationSettings()">
+                        <option value="">Select a channel...</option>
+                        <option value="discord">Discord</option>
+                        <option value="slack">Slack</option>
+                        <option value="email">Email</option>
+                        <option value="desktop">Desktop</option>
+                    </select>
+                </div>
+
+                <!-- Discord/Slack Settings -->
+                <div id="webhook-settings" style="display: none;">
+                    <div class="form-group">
+                        <label for="notif-webhook-url">Webhook URL</label>
+                        <input type="url" id="notif-webhook-url" placeholder="https://discord.com/api/webhooks/...">
+                        <span class="form-hint" id="webhook-hint">Create a webhook in your Discord server settings</span>
+                    </div>
+                </div>
+
+                <!-- Email Settings -->
+                <div id="email-settings" style="display: none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="notif-smtp-host">SMTP Host</label>
+                            <input type="text" id="notif-smtp-host" placeholder="smtp.gmail.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="notif-smtp-port">SMTP Port</label>
+                            <input type="number" id="notif-smtp-port" value="587">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="notif-smtp-user">Username</label>
+                            <input type="text" id="notif-smtp-user" placeholder="your@email.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="notif-smtp-password">Password</label>
+                            <input type="password" id="notif-smtp-password" placeholder="App password">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="notif-smtp-from">From Address</label>
+                            <input type="email" id="notif-smtp-from" placeholder="notifications@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="notif-smtp-to">To Addresses (comma-separated)</label>
+                            <input type="text" id="notif-smtp-to" placeholder="admin@example.com">
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="notif-smtp-tls" checked>
+                        Use TLS
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Notification Events</label>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="issue_started" checked>
+                            Issue Started
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="issue_completed" checked>
+                            Issue Completed
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="issue_failed" checked>
+                            Issue Failed
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="pr_created" checked>
+                            PR Created
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="pr_merged">
+                            PR Merged
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="session_error" checked>
+                            Session Error
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notif-events" value="health_warning">
+                            Health Warning
+                        </label>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeAddNotificationModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Channel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/settings.js"></script>
+</body>
+</html>

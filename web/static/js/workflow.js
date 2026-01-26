@@ -5,13 +5,13 @@ const workflowApp = {
     selectedTemplatePhases: null,
     ws: null,
     currentFilter: 'all',
-    
+
     providers: {},
     providerModels: {},
     oauthStatus: {},
     editingTemplate: null,
     editingPhases: [],
-    
+
     pendingApproval: null,
     approvalCountdownInterval: null,
     isLoading: false,
@@ -19,9 +19,15 @@ const workflowApp = {
     wsReconnectTimeout: null,
     maxWsReconnectAttempts: 5,
 
+    todos: [],
+    todoProgress: null,
+
+    contextMenuExecutionId: null,
+
     async init() {
         this.requestNotificationPermission();
         this.setupKeyboardHandlers();
+        this.setupContextMenu();
         await this.loadTemplates();
         await this.loadExecutions();
         this.updateStats();
@@ -51,9 +57,124 @@ const workflowApp = {
         const active = document.activeElement;
         return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
     },
-    
+
     hasOpenModal() {
         return document.querySelector('.modal.open') !== null;
+    },
+
+    // ==================== Context Menu ====================
+
+    setupContextMenu() {
+        document.addEventListener('click', () => this.hideContextMenu());
+        document.addEventListener('contextmenu', (e) => {
+            if (!e.target.closest('.execution-card')) {
+                this.hideContextMenu();
+            }
+        });
+    },
+
+    showContextMenu(x, y, executionId) {
+        this.contextMenuExecutionId = executionId;
+        const menu = document.getElementById('workflow-context-menu');
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        menu.classList.add('open');
+
+        // Update menu items based on execution status
+        const execution = this.executions.find(e => e.id === executionId);
+        const cancelItem = menu.querySelector('.context-menu-item:nth-child(4)');
+        if (execution && execution.status === 'running') {
+            cancelItem.style.display = 'flex';
+        } else {
+            cancelItem.style.display = 'none';
+        }
+
+        // Adjust if off-screen
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+            menu.style.left = (x - rect.width) + 'px';
+        }
+        if (rect.bottom > window.innerHeight) {
+            menu.style.top = (y - rect.height) + 'px';
+        }
+    },
+
+    hideContextMenu() {
+        const menu = document.getElementById('workflow-context-menu');
+        if (menu) menu.classList.remove('open');
+    },
+
+    contextMenuViewArtifacts() {
+        this.hideContextMenu();
+        if (this.contextMenuExecutionId) {
+            this.showArtifacts(this.contextMenuExecutionId);
+        }
+    },
+
+    async contextMenuDuplicate() {
+        this.hideContextMenu();
+        const execution = this.executions.find(e => e.id === this.contextMenuExecutionId);
+        if (!execution) return;
+
+        // Pre-fill the new workflow modal with the same task
+        document.getElementById('workflow-task').value = execution.task_description || '';
+        document.getElementById('workflow-path').value = execution.project_path || '';
+        this.openNewWorkflowModal();
+    },
+
+    contextMenuCancel() {
+        this.hideContextMenu();
+        if (this.contextMenuExecutionId) {
+            this.cancelExecution(this.contextMenuExecutionId);
+        }
+    },
+
+    contextMenuDelete() {
+        this.hideContextMenu();
+        if (confirm('Are you sure you want to DELETE this workflow? This cannot be undone.')) {
+            this.deleteExecution(this.contextMenuExecutionId);
+        }
+    },
+
+    async deleteExecution(executionId) {
+        this.setLoading(true);
+        try {
+            const response = await fetch(`/api/workflow/executions/${executionId}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+
+            // Remove from local state
+            this.executions = this.executions.filter(e => e.id !== executionId);
+
+            // Clear selected if it was deleted
+            if (this.selectedExecution?.id === executionId) {
+                this.selectedExecution = null;
+                document.getElementById('pipeline-title').textContent = 'Select a workflow';
+                document.getElementById('pipeline-status').textContent = '';
+                document.getElementById('pipeline-actions').innerHTML = '';
+                document.getElementById('pipeline-view').innerHTML = `
+                    <div class="pipeline-placeholder">
+                        <div class="placeholder-icon">⚙</div>
+                        <p>Select a workflow execution to view its pipeline</p>
+                        <p class="placeholder-hint">or create a new workflow to get started</p>
+                    </div>
+                `;
+            }
+
+            this.renderExecutionList();
+            this.updateStats();
+            this.showToast('Workflow deleted', 'success');
+        } catch (error) {
+            console.error('Failed to delete execution:', error);
+            this.showToast(`Failed to delete: ${error.message}`, 'error');
+        } finally {
+            this.setLoading(false);
+        }
     },
     
     closeAllModals() {
@@ -144,12 +265,13 @@ const workflowApp = {
 
         container.innerHTML = filtered.map(exec => {
             const safeDesc = this.escapeHtml(exec.task_description || 'Workflow');
-            const displayStatus = this.selectedExecution?.id === exec.id 
-                ? (this.selectedExecution.status || exec.status) 
+            const displayStatus = this.selectedExecution?.id === exec.id
+                ? (this.selectedExecution.status || exec.status)
                 : exec.status;
             return `
-            <div class="execution-card ${this.selectedExecution?.id === exec.id ? 'active' : ''}" 
+            <div class="execution-card ${this.selectedExecution?.id === exec.id ? 'active' : ''}"
                  onclick="workflowApp.selectExecution('${this.escapeHtml(exec.id)}')"
+                 oncontextmenu="event.preventDefault(); workflowApp.showContextMenu(event.clientX, event.clientY, '${this.escapeHtml(exec.id)}')"
                  data-execution-id="${this.escapeHtml(exec.id)}">
                 <div class="execution-card-header">
                     <span class="execution-card-title" title="${safeDesc}">
@@ -357,6 +479,74 @@ const workflowApp = {
             : `$${used.toFixed(2)}`;
     },
 
+    renderTodos() {
+        let container = document.getElementById('todo-panel');
+        
+        if (!container) {
+            const pipelineView = document.getElementById('pipeline-view');
+            if (!pipelineView) return;
+            
+            container = document.createElement('div');
+            container.id = 'todo-panel';
+            container.className = 'todo-panel';
+            pipelineView.parentElement.insertBefore(container, pipelineView);
+        }
+        
+        if (!this.todos || this.todos.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'block';
+        
+        const progress = this.todoProgress || {};
+        const percent = progress.percent || 0;
+        const completed = progress.completed || 0;
+        const total = progress.total || this.todos.length;
+        const inProgress = progress.in_progress || 0;
+        
+        const todoItems = this.todos.map(todo => {
+            const statusClass = `todo-${todo.status}`;
+            const statusIcon = this.getTodoStatusIcon(todo.status);
+            const priorityClass = `priority-${todo.priority}`;
+            
+            return `
+                <div class="todo-item ${statusClass} ${priorityClass}">
+                    <span class="todo-status-icon">${statusIcon}</span>
+                    <span class="todo-content">${this.escapeHtml(todo.content)}</span>
+                    <span class="todo-priority">${todo.priority}</span>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = `
+            <div class="todo-header">
+                <div class="todo-title">
+                    <span class="todo-icon">📋</span>
+                    <span>Tasks</span>
+                    <span class="todo-count">${completed}/${total}</span>
+                </div>
+                <div class="todo-progress-bar">
+                    <div class="todo-progress-fill" style="width: ${percent}%"></div>
+                </div>
+                ${inProgress > 0 ? `<span class="todo-in-progress">${inProgress} in progress</span>` : ''}
+            </div>
+            <div class="todo-list">
+                ${todoItems}
+            </div>
+        `;
+    },
+    
+    getTodoStatusIcon(status) {
+        const icons = {
+            pending: '○',
+            in_progress: '◐',
+            completed: '●',
+            cancelled: '◌'
+        };
+        return icons[status] || '○';
+    },
+
     async runExecution(executionId) {
         this.setLoading(true);
         try {
@@ -473,6 +663,11 @@ const workflowApp = {
             if (data.pending_approval) {
                 this.showApprovalBanner(data.pending_approval.message, data.pending_approval.timeout_seconds);
             }
+            if (data.todos) {
+                this.todos = data.todos;
+                this.todoProgress = data.todo_progress || null;
+                this.renderTodos();
+            }
         }
         if (data.type === 'approval_needed') {
             this.showApprovalBanner(data.message, data.timeout_seconds);
@@ -484,6 +679,11 @@ const workflowApp = {
         }
         if (data.type === 'budget_update' && data.budget) {
             this.renderBudget(data.budget);
+        }
+        if (data.type === 'todo_update') {
+            this.todos = data.todos || [];
+            this.todoProgress = data.progress || null;
+            this.renderTodos();
         }
     },
     

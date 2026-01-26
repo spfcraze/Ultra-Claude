@@ -253,6 +253,134 @@ CREATE TABLE IF NOT EXISTS approval_history (
 
 CREATE INDEX IF NOT EXISTS idx_approval_history_execution ON approval_history(execution_id);
 CREATE INDEX IF NOT EXISTS idx_approval_history_action ON approval_history(action);
+
+-- SDK Todo Tracking Table
+CREATE TABLE IF NOT EXISTS sdk_todos (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    phase_execution_id TEXT,
+    workflow_execution_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    FOREIGN KEY (workflow_execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE,
+    FOREIGN KEY (phase_execution_id) REFERENCES phase_executions(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sdk_todos_workflow ON sdk_todos(workflow_execution_id);
+CREATE INDEX IF NOT EXISTS idx_sdk_todos_status ON sdk_todos(status);
+CREATE INDEX IF NOT EXISTS idx_sdk_todos_phase ON sdk_todos(phase_execution_id);
+
+-- Scheduled Tasks Table
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    project_id INTEGER,
+    last_run TEXT,
+    next_run TEXT,
+    run_count INTEGER DEFAULT 0,
+    error_count INTEGER DEFAULT 0,
+    last_error TEXT DEFAULT '',
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_project ON scheduled_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_type ON scheduled_tasks(task_type);
+
+-- Webhook Configurations Table
+CREATE TABLE IF NOT EXISTS webhook_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL UNIQUE,
+    enabled INTEGER DEFAULT 1,
+    github_secret_encrypted TEXT DEFAULT '',
+    auto_queue_issues INTEGER DEFAULT 1,
+    auto_start_on_label TEXT DEFAULT '',
+    trigger_labels TEXT DEFAULT '[]',
+    ignore_labels TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_configs_project ON webhook_configs(project_id);
+
+-- Webhook Event Log Table
+CREATE TABLE IF NOT EXISTS webhook_events (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    project_id INTEGER,
+    payload TEXT DEFAULT '{}',
+    processed INTEGER DEFAULT 0,
+    result TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_events_project ON webhook_events(project_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_created ON webhook_events(created_at);
+
+-- Notification Configurations Table
+CREATE TABLE IF NOT EXISTS notification_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER UNIQUE,  -- NULL for global config
+    enabled INTEGER DEFAULT 1,
+    events TEXT DEFAULT '[]',
+    discord_enabled INTEGER DEFAULT 0,
+    discord_webhook_url_encrypted TEXT DEFAULT '',
+    slack_enabled INTEGER DEFAULT 0,
+    slack_webhook_url_encrypted TEXT DEFAULT '',
+    email_enabled INTEGER DEFAULT 0,
+    email_smtp_host TEXT DEFAULT '',
+    email_smtp_port INTEGER DEFAULT 587,
+    email_smtp_user TEXT DEFAULT '',
+    email_smtp_password_encrypted TEXT DEFAULT '',
+    email_from TEXT DEFAULT '',
+    email_to TEXT DEFAULT '[]',
+    email_use_tls INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_configs_project ON notification_configs(project_id);
+
+-- Notification Log Table
+CREATE TABLE IF NOT EXISTS notification_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    project_id INTEGER,
+    issue_number INTEGER,
+    pr_number INTEGER,
+    severity TEXT DEFAULT 'info',
+    channels_sent TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_log_project ON notification_log(project_id);
+CREATE INDEX IF NOT EXISTS idx_notification_log_event ON notification_log(event);
+CREATE INDEX IF NOT EXISTS idx_notification_log_created ON notification_log(created_at);
+
+-- System Settings Table (for global configurations)
+CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -1459,6 +1587,404 @@ class Database:
             'timeout_seconds': row['timeout_seconds'],
             'was_timeout': bool(row['was_timeout']),
         }
+
+    # ==================== SDK Todo Methods ====================
+
+    def upsert_sdk_todo(self, data: Dict[str, Any]) -> bool:
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO sdk_todos (
+                    id, content, status, priority, phase_execution_id,
+                    workflow_execution_id, created_at, updated_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    content = excluded.content,
+                    status = excluded.status,
+                    priority = excluded.priority,
+                    phase_execution_id = excluded.phase_execution_id,
+                    updated_at = excluded.updated_at,
+                    metadata = excluded.metadata
+            """, (
+                data.get('id', ''),
+                data.get('content', ''),
+                data.get('status', 'pending'),
+                data.get('priority', 'medium'),
+                data.get('phase_execution_id'),
+                data.get('workflow_execution_id', ''),
+                data.get('created_at', datetime.now().isoformat()),
+                data.get('updated_at', datetime.now().isoformat()),
+                json.dumps(data.get('metadata', {})),
+            ))
+            return True
+
+    def get_sdk_todos(self, workflow_execution_id: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sdk_todos WHERE workflow_execution_id = ? ORDER BY created_at",
+                (workflow_execution_id,)
+            ).fetchall()
+            return [self._row_to_sdk_todo(row) for row in rows]
+
+    def get_sdk_todo(self, todo_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM sdk_todos WHERE id = ?", (todo_id,)
+            ).fetchone()
+            return self._row_to_sdk_todo(row) if row else None
+
+    def update_sdk_todo(self, todo_id: str, data: Dict[str, Any]) -> bool:
+        fields = []
+        values = []
+        for key, value in data.items():
+            if key == 'id':
+                continue
+            if key == 'metadata':
+                value = json.dumps(value) if isinstance(value, dict) else value
+            fields.append(f"{key} = ?")
+            values.append(value)
+        
+        if not fields:
+            return False
+        
+        fields.append("updated_at = ?")
+        values.append(datetime.now().isoformat())
+        values.append(todo_id)
+        
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE sdk_todos SET {', '.join(fields)} WHERE id = ?",
+                values
+            )
+            return cursor.rowcount > 0
+
+    def delete_sdk_todos_by_workflow(self, workflow_execution_id: str) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM sdk_todos WHERE workflow_execution_id = ?",
+                (workflow_execution_id,)
+            )
+            return cursor.rowcount
+
+    def _row_to_sdk_todo(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'content': row['content'],
+            'status': row['status'],
+            'priority': row['priority'],
+            'phase_execution_id': row['phase_execution_id'],
+            'workflow_execution_id': row['workflow_execution_id'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+            'metadata': json.loads(row['metadata']) if row['metadata'] else {},
+        }
+
+    # ==================== Scheduled Tasks Methods ====================
+
+    def upsert_scheduled_task(self, data: Dict[str, Any]) -> str:
+        """Create or update a scheduled task"""
+        task_id = data.get('id', '')
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO scheduled_tasks (
+                    id, name, task_type, schedule, enabled, project_id,
+                    last_run, next_run, run_count, error_count, last_error,
+                    config, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    task_type = excluded.task_type,
+                    schedule = excluded.schedule,
+                    enabled = excluded.enabled,
+                    last_run = excluded.last_run,
+                    next_run = excluded.next_run,
+                    run_count = excluded.run_count,
+                    error_count = excluded.error_count,
+                    last_error = excluded.last_error,
+                    config = excluded.config,
+                    updated_at = excluded.updated_at
+            """, (
+                task_id,
+                data.get('name', ''),
+                data.get('task_type', ''),
+                data.get('schedule', ''),
+                int(data.get('enabled', True)),
+                data.get('project_id'),
+                data.get('last_run'),
+                data.get('next_run'),
+                data.get('run_count', 0),
+                data.get('error_count', 0),
+                data.get('last_error', ''),
+                json.dumps(data.get('config', {})),
+                data.get('created_at', datetime.now().isoformat()),
+                datetime.now().isoformat(),
+            ))
+            return task_id
+
+    def get_scheduled_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            return self._row_to_scheduled_task(row) if row else None
+
+    def get_all_scheduled_tasks(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM scheduled_tasks").fetchall()
+            return [self._row_to_scheduled_task(row) for row in rows]
+
+    def get_scheduled_tasks_by_project(self, project_id: int) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_tasks WHERE project_id = ?", (project_id,)
+            ).fetchall()
+            return [self._row_to_scheduled_task(row) for row in rows]
+
+    def delete_scheduled_task(self, task_id: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_scheduled_task(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'task_type': row['task_type'],
+            'schedule': row['schedule'],
+            'enabled': bool(row['enabled']),
+            'project_id': row['project_id'],
+            'last_run': row['last_run'],
+            'next_run': row['next_run'],
+            'run_count': row['run_count'],
+            'error_count': row['error_count'],
+            'last_error': row['last_error'],
+            'config': json.loads(row['config']) if row['config'] else {},
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    # ==================== Webhook Config Methods ====================
+
+    def save_webhook_config(self, data: Dict[str, Any]) -> int:
+        """Save webhook configuration for a project"""
+        project_id = data.get('project_id')
+        with self._get_connection() as conn:
+            existing = conn.execute(
+                "SELECT id FROM webhook_configs WHERE project_id = ?", (project_id,)
+            ).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE webhook_configs SET
+                        enabled = ?,
+                        github_secret_encrypted = ?,
+                        auto_queue_issues = ?,
+                        auto_start_on_label = ?,
+                        trigger_labels = ?,
+                        ignore_labels = ?,
+                        updated_at = ?
+                    WHERE project_id = ?
+                """, (
+                    int(data.get('enabled', True)),
+                    data.get('github_secret_encrypted', ''),
+                    int(data.get('auto_queue_issues', True)),
+                    data.get('auto_start_on_label', ''),
+                    json.dumps(data.get('trigger_labels', [])),
+                    json.dumps(data.get('ignore_labels', [])),
+                    datetime.now().isoformat(),
+                    project_id,
+                ))
+                return existing['id']
+            else:
+                cursor = conn.execute("""
+                    INSERT INTO webhook_configs (
+                        project_id, enabled, github_secret_encrypted, auto_queue_issues,
+                        auto_start_on_label, trigger_labels, ignore_labels, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    project_id,
+                    int(data.get('enabled', True)),
+                    data.get('github_secret_encrypted', ''),
+                    int(data.get('auto_queue_issues', True)),
+                    data.get('auto_start_on_label', ''),
+                    json.dumps(data.get('trigger_labels', [])),
+                    json.dumps(data.get('ignore_labels', [])),
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat(),
+                ))
+                return cursor.lastrowid or 0
+
+    def get_webhook_config(self, project_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM webhook_configs WHERE project_id = ?", (project_id,)
+            ).fetchone()
+            return self._row_to_webhook_config(row) if row else None
+
+    def delete_webhook_config(self, project_id: int) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM webhook_configs WHERE project_id = ?", (project_id,)
+            )
+            return cursor.rowcount > 0
+
+    def _row_to_webhook_config(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'project_id': row['project_id'],
+            'enabled': bool(row['enabled']),
+            'github_secret_encrypted': row['github_secret_encrypted'],
+            'auto_queue_issues': bool(row['auto_queue_issues']),
+            'auto_start_on_label': row['auto_start_on_label'],
+            'trigger_labels': json.loads(row['trigger_labels']) if row['trigger_labels'] else [],
+            'ignore_labels': json.loads(row['ignore_labels']) if row['ignore_labels'] else [],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    # ==================== Notification Config Methods ====================
+
+    def save_notification_config(self, data: Dict[str, Any]) -> int:
+        """Save notification configuration (global if project_id is None)"""
+        project_id = data.get('project_id')
+        with self._get_connection() as conn:
+            if project_id is None:
+                existing = conn.execute(
+                    "SELECT id FROM notification_configs WHERE project_id IS NULL"
+                ).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id FROM notification_configs WHERE project_id = ?", (project_id,)
+                ).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE notification_configs SET
+                        enabled = ?,
+                        events = ?,
+                        discord_enabled = ?,
+                        discord_webhook_url_encrypted = ?,
+                        slack_enabled = ?,
+                        slack_webhook_url_encrypted = ?,
+                        email_enabled = ?,
+                        email_smtp_host = ?,
+                        email_smtp_port = ?,
+                        email_smtp_user = ?,
+                        email_smtp_password_encrypted = ?,
+                        email_from = ?,
+                        email_to = ?,
+                        email_use_tls = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (
+                    int(data.get('enabled', True)),
+                    json.dumps(data.get('events', [])),
+                    int(data.get('discord_enabled', False)),
+                    data.get('discord_webhook_url_encrypted', ''),
+                    int(data.get('slack_enabled', False)),
+                    data.get('slack_webhook_url_encrypted', ''),
+                    int(data.get('email_enabled', False)),
+                    data.get('email_smtp_host', ''),
+                    data.get('email_smtp_port', 587),
+                    data.get('email_smtp_user', ''),
+                    data.get('email_smtp_password_encrypted', ''),
+                    data.get('email_from', ''),
+                    json.dumps(data.get('email_to', [])),
+                    int(data.get('email_use_tls', True)),
+                    datetime.now().isoformat(),
+                    existing['id'],
+                ))
+                return existing['id']
+            else:
+                cursor = conn.execute("""
+                    INSERT INTO notification_configs (
+                        project_id, enabled, events, discord_enabled, discord_webhook_url_encrypted,
+                        slack_enabled, slack_webhook_url_encrypted, email_enabled, email_smtp_host,
+                        email_smtp_port, email_smtp_user, email_smtp_password_encrypted, email_from,
+                        email_to, email_use_tls, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    project_id,
+                    int(data.get('enabled', True)),
+                    json.dumps(data.get('events', [])),
+                    int(data.get('discord_enabled', False)),
+                    data.get('discord_webhook_url_encrypted', ''),
+                    int(data.get('slack_enabled', False)),
+                    data.get('slack_webhook_url_encrypted', ''),
+                    int(data.get('email_enabled', False)),
+                    data.get('email_smtp_host', ''),
+                    data.get('email_smtp_port', 587),
+                    data.get('email_smtp_user', ''),
+                    data.get('email_smtp_password_encrypted', ''),
+                    data.get('email_from', ''),
+                    json.dumps(data.get('email_to', [])),
+                    int(data.get('email_use_tls', True)),
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat(),
+                ))
+                return cursor.lastrowid or 0
+
+    def get_notification_config(self, project_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Get notification config (global if project_id is None)"""
+        with self._get_connection() as conn:
+            if project_id is None:
+                row = conn.execute(
+                    "SELECT * FROM notification_configs WHERE project_id IS NULL"
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM notification_configs WHERE project_id = ?", (project_id,)
+                ).fetchone()
+            return self._row_to_notification_config(row) if row else None
+
+    def _row_to_notification_config(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'project_id': row['project_id'],
+            'enabled': bool(row['enabled']),
+            'events': json.loads(row['events']) if row['events'] else [],
+            'discord_enabled': bool(row['discord_enabled']),
+            'discord_webhook_url_encrypted': row['discord_webhook_url_encrypted'],
+            'slack_enabled': bool(row['slack_enabled']),
+            'slack_webhook_url_encrypted': row['slack_webhook_url_encrypted'],
+            'email_enabled': bool(row['email_enabled']),
+            'email_smtp_host': row['email_smtp_host'],
+            'email_smtp_port': row['email_smtp_port'],
+            'email_smtp_user': row['email_smtp_user'],
+            'email_smtp_password_encrypted': row['email_smtp_password_encrypted'],
+            'email_from': row['email_from'],
+            'email_to': json.loads(row['email_to']) if row['email_to'] else [],
+            'email_use_tls': bool(row['email_use_tls']),
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    # ==================== System Settings Methods ====================
+
+    def get_setting(self, key: str) -> Optional[str]:
+        """Get a system setting value"""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key = ?", (key,)
+            ).fetchone()
+            return row['value'] if row else None
+
+    def set_setting(self, key: str, value: str) -> bool:
+        """Set a system setting value"""
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO system_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+            """, (key, value, datetime.now().isoformat()))
+            return True
+
+    def get_all_settings(self) -> Dict[str, str]:
+        """Get all system settings"""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT key, value FROM system_settings").fetchall()
+            return {row['key']: row['value'] for row in rows}
 
 
 db = Database()

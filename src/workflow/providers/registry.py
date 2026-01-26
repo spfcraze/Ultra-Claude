@@ -7,6 +7,7 @@ from .gemini_oauth import GeminiOAuthProvider
 from .openai import OpenAIProvider, OpenRouterProvider, OPENAI_MODELS
 from .ollama import OllamaProvider, detect_ollama
 from .lm_studio import LMStudioProvider, detect_lm_studio
+from .sdk_provider import ClaudeSDKProvider, CLAUDE_SDK_MODELS
 from ..models import ProviderConfig, ProviderType, ProviderKeys
 from ..oauth.manager import oauth_manager
 from ...database import db
@@ -65,6 +66,8 @@ class ModelRegistry:
             if not config.api_url:
                 config.api_url = keys.lm_studio_url
             return LMStudioProvider(config)
+        elif config.provider_type == ProviderType.CLAUDE_SDK:
+            return ClaudeSDKProvider(config)
         else:
             raise ValueError(f"Unsupported provider type: {config.provider_type}")
 
@@ -133,6 +136,11 @@ class ModelRegistry:
             finally:
                 await provider.close()
         
+        elif provider_type == ProviderType.CLAUDE_SDK:
+            config = ProviderConfig(provider_type=ProviderType.CLAUDE_SDK)
+            provider = ClaudeSDKProvider(config)
+            models = await provider.list_models()
+        
         for model in models:
             db.upsert_model({
                 'provider': provider_type.value,
@@ -159,6 +167,7 @@ class ModelRegistry:
             ProviderType.OPENROUTER,
             ProviderType.OLLAMA,
             ProviderType.LM_STUDIO,
+            ProviderType.CLAUDE_SDK,
         ]:
             try:
                 models = await self.refresh_models(ptype)
@@ -256,6 +265,10 @@ class ModelRegistry:
             'claude_code': {
                 'configured': True,
                 'type': 'cli',
+            },
+            'claude_sdk': {
+                'configured': True,
+                'type': 'sdk',
             },
         }
 

@@ -20,6 +20,8 @@ from .budget_tracker import budget_manager
 from .providers.registry import model_registry
 from .oauth.manager import oauth_manager, AuthStatus
 from .oauth.storage import OAuthClientConfig
+from .todo_sync import todo_sync_manager
+from .sdk_models import TodoStatus
 from ..database import db
 
 
@@ -746,6 +748,73 @@ async def set_project_budget_limit(project_id: int, limit: float | None = None):
     return {"success": True}
 
 
+class TodoStatusUpdateRequest(BaseModel):
+    status: str
+
+
+@router.get("/executions/{execution_id}/todos")
+async def get_execution_todos(execution_id: str):
+    todos = todo_sync_manager.get_todos(execution_id)
+    progress = todo_sync_manager.get_progress(execution_id)
+    return {
+        "todos": [t.to_dict() for t in todos],
+        "progress": progress,
+    }
+
+
+@router.get("/executions/{execution_id}/todos/progress")
+async def get_execution_todo_progress(execution_id: str):
+    return todo_sync_manager.get_progress(execution_id)
+
+
+@router.put("/executions/{execution_id}/todos/{todo_id}")
+async def update_todo_status(
+    execution_id: str,
+    todo_id: str,
+    request: TodoStatusUpdateRequest,
+):
+    try:
+        status = TodoStatus(request.status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {request.status}")
+    
+    success = await todo_sync_manager.update_todo_status(execution_id, todo_id, status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    
+    return {"success": True}
+
+
+@router.delete("/executions/{execution_id}/todos")
+async def clear_execution_todos(execution_id: str):
+    todo_sync_manager.clear_workflow(execution_id)
+    return {"success": True}
+
+
+@router.delete("/executions/{execution_id}")
+async def delete_execution(execution_id: str):
+    """Delete a workflow execution and all associated data."""
+    from ..database import db
+
+    execution = db.get_workflow_execution(execution_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    # Don't allow deleting running executions
+    if execution.get("status") == "running":
+        raise HTTPException(status_code=400, detail="Cannot delete a running execution. Cancel it first.")
+
+    # Clear todos first
+    todo_sync_manager.clear_workflow(execution_id)
+
+    # Delete from database
+    success = db.delete_workflow_execution(execution_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete execution")
+
+    return {"success": True, "message": f"Execution {execution_id} deleted"}
+
+
 class WorkflowWebSocketManager:
     
     def __init__(self):
@@ -807,6 +876,11 @@ async def workflow_websocket(websocket: WebSocket, execution_id: str):
                 "timeout_seconds": approval_info.get("remaining_seconds") if approval_info else 300,
             }
         
+        todos = todo_sync_manager.get_todos(execution_id)
+        if todos:
+            init_data["todos"] = [t.to_dict() for t in todos]
+            init_data["todo_progress"] = todo_sync_manager.get_progress(execution_id)
+        
         await websocket.send_json(init_data)
     
     try:
@@ -836,6 +910,16 @@ async def broadcast_workflow_event(execution_id: str, event_type: str, data: dic
     await ws_manager.broadcast(execution_id, {
         "type": event_type,
         **data,
+    })
+
+
+async def broadcast_todo_update(execution_id: str, todos: list):
+    from .sdk_models import SDKTodo
+    progress = todo_sync_manager.get_progress(execution_id)
+    await ws_manager.broadcast(execution_id, {
+        "type": "todo_update",
+        "todos": [t.to_dict() if isinstance(t, SDKTodo) else t for t in todos],
+        "progress": progress,
     })
 
 
@@ -905,3 +989,5 @@ def create_web_orchestrator() -> WorkflowOrchestrator:
 
 
 web_orchestrator = create_web_orchestrator()
+
+todo_sync_manager.set_update_callback(broadcast_todo_update)

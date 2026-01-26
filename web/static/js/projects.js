@@ -1209,3 +1209,145 @@ async function testLlmConnection(formType) {
         }
     }
 }
+
+// ==================== Webhook Settings Functions ====================
+
+// Toggle webhook settings visibility when checkbox is clicked
+document.addEventListener('DOMContentLoaded', () => {
+    const webhookCheckbox = document.getElementById('edit-webhook-enabled');
+    if (webhookCheckbox) {
+        webhookCheckbox.addEventListener('change', toggleWebhookSettings);
+    }
+});
+
+function toggleWebhookSettings() {
+    const enabled = document.getElementById('edit-webhook-enabled').checked;
+    const settingsDiv = document.getElementById('webhook-settings-edit');
+    if (settingsDiv) {
+        settingsDiv.style.display = enabled ? 'block' : 'none';
+    }
+}
+
+// Load webhook configuration when editing a project
+async function loadWebhookConfig(projectId) {
+    try {
+        const response = await fetch(`/api/projects/${projectId}/webhooks`);
+        const data = await response.json();
+        const config = data.config || {};
+
+        document.getElementById('edit-webhook-enabled').checked = config.enabled || false;
+        document.getElementById('edit-webhook-secret').value = ''; // Don't show existing secret
+        document.getElementById('edit-webhook-auto-queue').checked = config.auto_queue_issues !== false;
+        document.getElementById('edit-webhook-trigger-labels').value = (config.trigger_labels || []).join(', ');
+        document.getElementById('edit-webhook-ignore-labels').value = (config.ignore_labels || []).join(', ');
+
+        toggleWebhookSettings();
+    } catch (e) {
+        console.error('Failed to load webhook config:', e);
+    }
+}
+
+// Save webhook configuration when updating a project
+async function saveWebhookConfig(projectId) {
+    const enabled = document.getElementById('edit-webhook-enabled').checked;
+    const secret = document.getElementById('edit-webhook-secret').value;
+    const autoQueue = document.getElementById('edit-webhook-auto-queue').checked;
+    const triggerLabels = document.getElementById('edit-webhook-trigger-labels').value;
+    const ignoreLabels = document.getElementById('edit-webhook-ignore-labels').value;
+
+    const webhookData = {
+        enabled: enabled,
+        auto_queue_issues: autoQueue,
+        trigger_labels: triggerLabels ? triggerLabels.split(',').map(l => l.trim()) : [],
+        ignore_labels: ignoreLabels ? ignoreLabels.split(',').map(l => l.trim()) : []
+    };
+
+    // Only include secret if a new one was entered
+    if (secret) {
+        webhookData.github_secret = secret;
+    }
+
+    try {
+        await fetch(`/api/projects/${projectId}/webhooks`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(webhookData)
+        });
+    } catch (e) {
+        console.error('Failed to save webhook config:', e);
+    }
+}
+
+// Override editProject to also load webhook config
+const originalEditProject = ProjectsManager.prototype.editProject;
+ProjectsManager.prototype.editProject = function(projectId) {
+    originalEditProject.call(this, projectId);
+    loadWebhookConfig(projectId);
+};
+
+// Override handleEditProject to also save webhook config
+const originalHandleEditProject = handleEditProject;
+handleEditProject = async function(event) {
+    event.preventDefault();
+    const projectId = parseInt(document.getElementById('edit-project-id').value);
+
+    // Save webhook config first
+    await saveWebhookConfig(projectId);
+
+    // Then save the project (call original handler's logic directly)
+    const labels = document.getElementById('edit-filter-labels').value;
+    const excludeLabels = document.getElementById('edit-filter-exclude').value;
+    const newToken = document.getElementById('edit-github-token').value;
+    const newLlmApiKey = document.getElementById('edit-llm-api-key').value;
+
+    const updateData = {
+        name: document.getElementById('edit-project-name').value,
+        working_dir: document.getElementById('edit-working-dir').value,
+        default_branch: document.getElementById('edit-default-branch').value,
+        max_concurrent: parseInt(document.getElementById('edit-max-concurrent').value) || 1,
+        lint_command: document.getElementById('edit-lint-command').value,
+        test_command: document.getElementById('edit-test-command').value,
+        build_command: document.getElementById('edit-build-command').value,
+        auto_sync: document.getElementById('edit-auto-sync').checked,
+        auto_start: document.getElementById('edit-auto-start').checked,
+        issue_filter: {
+            labels: labels ? labels.split(',').map(l => l.trim()) : [],
+            exclude_labels: excludeLabels ? excludeLabels.split(',').map(l => l.trim()) : []
+        },
+        llm_provider: document.getElementById('edit-llm-provider').value,
+        llm_api_url: document.getElementById('edit-llm-api-url').value,
+        llm_model: document.getElementById('edit-llm-model').value,
+        llm_context_length: parseInt(document.getElementById('edit-llm-context-length').value) || 8192,
+        llm_temperature: parseFloat(document.getElementById('edit-llm-temperature').value) || 0.1
+    };
+
+    if (newToken) {
+        updateData.github_token = newToken;
+    }
+    if (newLlmApiKey) {
+        updateData.llm_api_key = newLlmApiKey;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${projectId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updateData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            closeEditProjectModal();
+            projectsManager.projects.set(data.project.id, data.project);
+            projectsManager.render();
+            projectsManager.renderProjectDetail(projectId);
+            Toast.success('Project Updated', 'Settings saved successfully');
+        } else {
+            Toast.error('Update Failed', data.detail || 'Unknown error');
+        }
+    } catch (e) {
+        console.error('Failed to update project:', e);
+        Toast.error('Update Failed', 'Failed to update project');
+    }
+};

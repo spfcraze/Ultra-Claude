@@ -83,6 +83,7 @@ class FailureBehavior(Enum):
 class ProviderType(Enum):
     """LLM Provider types"""
     CLAUDE_CODE = "claude_code"
+    CLAUDE_SDK = "claude_sdk"  # Claude Agent SDK for todo-aware workflows
     GEMINI_SDK = "gemini_sdk"
     GEMINI_OPENROUTER = "gemini_openrouter"
     GEMINI_OAUTH = "gemini_oauth"
@@ -523,7 +524,7 @@ class ProviderKeys:
             return bool(self.openai_api_key)
         elif provider in (ProviderType.OPENROUTER, ProviderType.GEMINI_OPENROUTER):
             return bool(self.openrouter_api_key)
-        elif provider in (ProviderType.OLLAMA, ProviderType.LM_STUDIO, ProviderType.CLAUDE_CODE, ProviderType.NONE):
+        elif provider in (ProviderType.OLLAMA, ProviderType.LM_STUDIO, ProviderType.CLAUDE_CODE, ProviderType.CLAUDE_SDK, ProviderType.NONE):
             return True
         return False
 

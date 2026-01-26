@@ -21,6 +21,7 @@
                 <a href="/projects" class="nav-tab">Projects</a>
                 <a href="/issues" class="nav-tab">Issues</a>
                 <a href="/workflows" class="nav-tab active">Workflows</a>
+                <a href="/settings" class="nav-tab">Settings</a>
             </nav>
             <div class="header-stats">
                 <span id="workflow-count">0 workflows</span>
@@ -363,6 +364,23 @@
             <div class="modal-actions">
                 <button class="btn" onclick="workflowApp.closeOAuthModal()">Close</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="workflow-context-menu">
+        <div class="context-menu-item" onclick="workflowApp.contextMenuViewArtifacts()">
+            <span class="context-icon">📄</span> View Artifacts
+        </div>
+        <div class="context-menu-item" onclick="workflowApp.contextMenuDuplicate()">
+            <span class="context-icon">📋</span> Duplicate Workflow
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="workflowApp.contextMenuCancel()">
+            <span class="context-icon">⏹</span> Cancel Execution
+        </div>
+        <div class="context-menu-item context-menu-danger" onclick="workflowApp.contextMenuDelete()">
+            <span class="context-icon">🗑</span> Delete Workflow
         </div>
     </div>
 

@@ -24,6 +24,7 @@
                 <a href="/projects" class="nav-tab active">Projects</a>
                 <a href="/issues" class="nav-tab">Issues</a>
                 <a href="/workflows" class="nav-tab">Workflows</a>
+                <a href="/settings" class="nav-tab">Settings</a>
             </nav>
             <button class="btn btn-primary" onclick="showCreateProjectModal()">
                 + New Project
@@ -322,6 +323,41 @@
                         <input type="checkbox" id="edit-auto-start">
                         Auto-start sessions for new issues
                     </label>
+                </div>
+
+                <h4 style="margin-top: 20px;">Webhook Configuration</h4>
+                <p class="form-hint" style="margin-bottom: 12px;">
+                    Enable webhooks to receive real-time GitHub notifications for new issues and PR events.
+                    <a href="/settings#webhooks" target="_blank">View setup guide</a>
+                </p>
+                <div class="form-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="edit-webhook-enabled">
+                        Enable webhooks for this project
+                    </label>
+                </div>
+                <div id="webhook-settings-edit" style="display: none; margin-top: 12px;">
+                    <div class="form-group">
+                        <label for="edit-webhook-secret">Webhook Secret</label>
+                        <input type="password" id="edit-webhook-secret" placeholder="Secret for signature verification">
+                        <span class="form-hint">Set this same secret in GitHub webhook settings for security</span>
+                    </div>
+                    <div class="form-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="edit-webhook-auto-queue" checked>
+                            Auto-queue new issues from webhooks
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-webhook-trigger-labels">Trigger Labels (comma-separated)</label>
+                        <input type="text" id="edit-webhook-trigger-labels" placeholder="auto-start, ai-ready">
+                        <span class="form-hint">Issues with these labels will auto-start processing</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-webhook-ignore-labels">Ignore Labels (comma-separated)</label>
+                        <input type="text" id="edit-webhook-ignore-labels" placeholder="wontfix, on-hold">
+                        <span class="form-hint">Issues with these labels will be ignored</span>
+                    </div>
                 </div>
 
                 <div class="modal-actions">
