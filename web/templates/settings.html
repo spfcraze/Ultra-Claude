@@ -13,23 +13,27 @@
     <div class="app">
         <!-- Header -->
         <header class="header">
-            <div class="logo">
-                <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
-                    <span class="logo-icon">⚡</span>
-                    <span class="logo-text">UltraClaude</span>
-                </a>
+            <div class="header-left">
+                <div class="logo">
+                    <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
+                        <span class="logo-icon">⚡</span>
+                        <span class="logo-text">UltraClaude</span>
+                    </a>
+                </div>
+                <nav class="nav-tabs">
+                    <a href="/" class="nav-tab" data-page="sessions"><span class="nav-tab-icon">◉</span> <span class="nav-tab-label">Sessions</span></a>
+                    <a href="/projects" class="nav-tab" data-page="projects"><span class="nav-tab-icon">◫</span> <span class="nav-tab-label">Projects</span></a>
+                    <a href="/issues" class="nav-tab" data-page="issues"><span class="nav-tab-icon">◎</span> <span class="nav-tab-label">Issues</span></a>
+                    <a href="/workflows" class="nav-tab" data-page="workflows"><span class="nav-tab-icon">⟡</span> <span class="nav-tab-label">Workflows</span></a>
+                    <a href="/browser" class="nav-tab" data-page="browser"><span class="nav-tab-icon">◳</span> <span class="nav-tab-label">Browser</span></a>
+                    <a href="/settings" class="nav-tab active" data-page="settings"><span class="nav-tab-icon">⚙</span> <span class="nav-tab-label">Settings</span></a>
+                </nav>
             </div>
-            <nav class="nav-tabs">
-                <a href="/" class="nav-tab">Sessions</a>
-                <a href="/projects" class="nav-tab">Projects</a>
-                <a href="/issues" class="nav-tab">Issues</a>
-                <a href="/workflows" class="nav-tab">Workflows</a>
-                <a href="/browser" class="nav-tab">Browser</a>
-                <a href="/settings" class="nav-tab active">Settings</a>
-            </nav>
-            <div class="header-status" id="header-status">
-                <span class="status-dot" id="daemon-status-dot"></span>
-                <span id="daemon-status-text">Checking...</span>
+            <div class="header-right">
+                <div class="header-status" id="header-status">
+                    <span class="status-dot" id="daemon-status-dot"></span>
+                    <span id="daemon-status-text">Checking...</span>
+                </div>
             </div>
         </header>
 
@@ -50,12 +54,17 @@
                 <button class="settings-nav-item" data-tab="notifications" onclick="switchTab('notifications')">
                     <span class="nav-icon">🔔</span>
                     <span class="nav-label">Notifications</span>
-                    <span class="nav-description">Discord, Slack, Email</span>
+                    <span class="nav-description">Discord, Slack, Telegram, Email</span>
                 </button>
                 <button class="settings-nav-item" data-tab="webhooks" onclick="switchTab('webhooks')">
                     <span class="nav-icon">🪝</span>
                     <span class="nav-label">Webhooks</span>
                     <span class="nav-description">GitHub Integration</span>
+                </button>
+                <button class="settings-nav-item" data-tab="telegram" onclick="switchTab('telegram')">
+                    <span class="nav-icon">✈️</span>
+                    <span class="nav-label">Telegram Bot</span>
+                    <span class="nav-description">Remote Control</span>
                 </button>
                 <button class="settings-nav-item" data-tab="system" onclick="switchTab('system')">
                     <span class="nav-icon">⚙️</span>
@@ -218,8 +227,8 @@
                     <div class="settings-section">
                         <h2>Notifications</h2>
                         <p class="section-description">
-                            Configure notifications to stay informed about automation events. Receive alerts when issues
-                            are started, completed, or fail, and when PRs are created or merged.
+                            Configure notifications to stay informed about automation events via Discord, Slack, Telegram, or Email.
+                            Receive alerts when issues are started, completed, or fail, and when PRs are created or merged.
                         </p>
 
                         <div class="notification-configs" id="notification-configs">
@@ -304,6 +313,116 @@
                     </div>
                 </div>
 
+                <!-- Telegram Bot Tab -->
+                <div class="settings-tab" id="tab-telegram">
+                    <div class="settings-section">
+                        <h2>Telegram Bot (Remote Control)</h2>
+                        <p class="section-description">
+                            Control UltraClaude remotely via Telegram. Manage sessions, trigger automation,
+                            and receive real-time event notifications directly in Telegram.
+                        </p>
+
+                        <div class="daemon-status-card" id="telegram-status-card">
+                            <div class="status-header">
+                                <h3>Bot Status</h3>
+                                <span class="status-badge" id="telegram-badge">Unknown</span>
+                            </div>
+                            <div class="status-details">
+                                <div class="status-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value" id="telegram-running">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Bot Username:</span>
+                                    <span class="value" id="telegram-username">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Started:</span>
+                                    <span class="value" id="telegram-started-at">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Allowed Users:</span>
+                                    <span class="value" id="telegram-allowed-users">-</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="label">Subscribed Chats:</span>
+                                    <span class="value" id="telegram-subscribed-chats">-</span>
+                                </div>
+                            </div>
+                            <div class="status-actions">
+                                <button class="btn btn-primary" id="telegram-start-btn" onclick="startTelegramBot()">Start Bot</button>
+                                <button class="btn btn-danger" id="telegram-stop-btn" onclick="stopTelegramBot()" disabled>Stop Bot</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-section" style="margin-top: 20px;">
+                            <h3>Bot Configuration</h3>
+                            <form id="telegram-config-form" onsubmit="saveTelegramConfig(event)">
+                                <div class="form-group">
+                                    <label for="tg-bot-token">Bot Token</label>
+                                    <input type="password" id="tg-bot-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                                    <span class="form-hint">Create a bot with <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram and copy the token</span>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tg-allowed-users">Allowed User IDs (comma-separated)</label>
+                                    <input type="text" id="tg-allowed-users" placeholder="123456789, 987654321">
+                                    <span class="form-hint">Telegram user IDs that can control the bot. Use <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> to find your ID</span>
+                                </div>
+                                <div class="form-group">
+                                    <label>Event Push Settings</label>
+                                    <div class="checkbox-grid">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="tg-push-session-status" checked>
+                                            Session Status Changes
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="tg-push-automation-events" checked>
+                                            Automation Events
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="tg-push-session-output">
+                                            Session Output (verbose)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tg-output-max-lines">Max Output Lines</label>
+                                    <input type="number" id="tg-output-max-lines" value="20" min="5" max="100">
+                                    <span class="form-hint">Maximum lines to show when viewing session output via /output command</span>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Save Configuration</button>
+                            </form>
+                        </div>
+
+                        <div class="setup-guide">
+                            <h3>Setup Guide</h3>
+                            <div class="guide-steps">
+                                <div class="guide-step">
+                                    <span class="step-number">1</span>
+                                    <div class="step-content">
+                                        <h4>Create a Bot</h4>
+                                        <p>Open Telegram and message <a href="https://t.me/BotFather" target="_blank">@BotFather</a>. Send /newbot and follow the prompts. Copy the bot token.</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">2</span>
+                                    <div class="step-content">
+                                        <h4>Get Your User ID</h4>
+                                        <p>Message <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> on Telegram to get your numeric user ID. Add it to the allowed users list above.</p>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <span class="step-number">3</span>
+                                    <div class="step-content">
+                                        <h4>Start the Bot</h4>
+                                        <p>Enter the token and allowed user IDs above, save the configuration, then click "Start Bot". Open your bot in Telegram and send /start.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- System Tab -->
                 <div class="settings-tab" id="tab-system">
                     <div class="settings-section">
@@ -366,6 +485,7 @@
                         <option value="">Select a channel...</option>
                         <option value="discord">Discord</option>
                         <option value="slack">Slack</option>
+                        <option value="telegram">Telegram</option>
                         <option value="email">Email</option>
                         <option value="desktop">Desktop</option>
                     </select>
@@ -377,6 +497,20 @@
                         <label for="notif-webhook-url">Webhook URL</label>
                         <input type="url" id="notif-webhook-url" placeholder="https://discord.com/api/webhooks/...">
                         <span class="form-hint" id="webhook-hint">Create a webhook in your Discord server settings</span>
+                    </div>
+                </div>
+
+                <!-- Telegram Settings -->
+                <div id="telegram-settings" style="display: none;">
+                    <div class="form-group">
+                        <label for="notif-bot-token">Bot Token</label>
+                        <input type="text" id="notif-bot-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                        <span class="form-hint">Create a bot with <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram and copy the token</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="notif-chat-id">Chat ID</label>
+                        <input type="text" id="notif-chat-id" placeholder="-1001234567890">
+                        <span class="form-hint">Your user ID, group ID, or channel ID. Use <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> to find your ID</span>
                     </div>
                 </div>
 

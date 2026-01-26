@@ -1,27 +1,6 @@
 /* Projects Page Styles */
 
-.nav-tabs {
-    display: flex;
-    gap: 8px;
-}
-
-.nav-tab {
-    padding: 8px 16px;
-    color: var(--text-secondary);
-    text-decoration: none;
-    border-radius: 6px;
-    transition: all 0.2s;
-}
-
-.nav-tab:hover {
-    color: var(--text-primary);
-    background: var(--bg-tertiary);
-}
-
-.nav-tab.active {
-    color: var(--text-primary);
-    background: var(--bg-tertiary);
-}
+/* Nav tab styles are handled by style.css */
 
 /* Projects Main Layout */
 .projects-main {

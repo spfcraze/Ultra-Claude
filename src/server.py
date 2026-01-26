@@ -28,6 +28,7 @@ from .security import (
     validate_path, is_safe_path, rate_limiter, get_cors_origins
 )
 from .audit import audit_logger, AuditEventType, get_client_ip
+from .telegram.bot import telegram_bot
 
 setup_logging()
 logger = get_logger("ultraclaude.server")
@@ -184,6 +185,18 @@ async def startup_event():
 
     automation_controller.add_event_callback(on_notification_event)
 
+    # Start Telegram bot if configured
+    if telegram_bot.get_config().enabled and telegram_bot.get_config().bot_token:
+        try:
+            await telegram_bot.start()
+            # Register callbacks for event relay
+            manager.add_status_callback(telegram_bot._on_session_status)
+            manager.add_completion_callback(telegram_bot._on_session_complete)
+            automation_controller.add_event_callback(telegram_bot._on_automation_event)
+            logger.info("Telegram bot started")
+        except Exception as e:
+            logger.error(f"Failed to start Telegram bot: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -192,6 +205,12 @@ async def shutdown_event():
     logger.info("Task scheduler stopped")
     await browser_manager.close_all()
     logger.info("Browser sessions closed")
+    # Stop Telegram bot
+    try:
+        await telegram_bot.stop()
+        logger.info("Telegram bot stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Telegram bot: {e}")
 
 
 @app.get("/health")
@@ -2120,6 +2139,10 @@ class NotificationConfigCreate(BaseModel):
     events: List[str] = Field(default_factory=list, max_length=50)
     # Channel-specific settings
     webhook_url: Optional[str] = Field(None, max_length=2000)
+    # Telegram settings
+    bot_token: Optional[str] = Field(None, max_length=200)
+    chat_id: Optional[str] = Field(None, max_length=100)
+    # Email settings
     smtp_host: Optional[str] = Field(None, max_length=500)
     smtp_port: int = Field(587, ge=1, le=65535)
     smtp_user: Optional[str] = Field(None, max_length=500)
@@ -2138,6 +2161,7 @@ async def create_notification_config(config_data: NotificationConfigCreate):
     channel_map = {
         "discord": NotificationChannel.DISCORD,
         "slack": NotificationChannel.SLACK,
+        "telegram": NotificationChannel.TELEGRAM,
         "email": NotificationChannel.EMAIL,
         "desktop": NotificationChannel.DESKTOP,
     }
@@ -2169,6 +2193,9 @@ async def create_notification_config(config_data: NotificationConfigCreate):
     settings = {}
     if config_data.channel in ("discord", "slack"):
         settings["webhook_url"] = config_data.webhook_url or ""
+    elif config_data.channel == "telegram":
+        settings["bot_token"] = config_data.bot_token or ""
+        settings["chat_id"] = config_data.chat_id or ""
     elif config_data.channel == "email":
         settings["smtp_host"] = config_data.smtp_host or ""
         settings["smtp_port"] = config_data.smtp_port
@@ -2203,6 +2230,7 @@ async def update_notification_config(config_id: str, config_data: NotificationCo
     channel_map = {
         "discord": NotificationChannel.DISCORD,
         "slack": NotificationChannel.SLACK,
+        "telegram": NotificationChannel.TELEGRAM,
         "email": NotificationChannel.EMAIL,
         "desktop": NotificationChannel.DESKTOP,
     }
@@ -2231,6 +2259,9 @@ async def update_notification_config(config_id: str, config_data: NotificationCo
     settings = {}
     if config_data.channel in ("discord", "slack"):
         settings["webhook_url"] = config_data.webhook_url or ""
+    elif config_data.channel == "telegram":
+        settings["bot_token"] = config_data.bot_token or ""
+        settings["chat_id"] = config_data.chat_id or ""
     elif config_data.channel == "email":
         settings["smtp_host"] = config_data.smtp_host or ""
         settings["smtp_port"] = config_data.smtp_port
@@ -2276,7 +2307,7 @@ async def test_notification_config(config_id: str):
 @app.get("/api/notifications/log")
 async def get_notification_log(limit: int = 100):
     """Get notification log"""
-    return {"notifications": notification_manager.get_log(limit)}
+    return {"notifications": notification_manager.get_notification_log(limit)}
 
 
 # ==================== System Settings Endpoints ====================
@@ -2327,6 +2358,65 @@ async def update_system_setting(key: str, setting: SettingUpdate):
 
     db.set_setting(key, setting.value)
     return {"success": True, "key": key, "value": setting.value}
+
+
+# ==================== Telegram Bot API ====================
+
+class TelegramStartRequest(BaseModel):
+    bot_token: str
+    allowed_user_ids: List[int] = []
+
+class TelegramConfigUpdate(BaseModel):
+    bot_token: Optional[str] = None
+    allowed_user_ids: Optional[List[int]] = None
+    push_session_status: Optional[bool] = None
+    push_automation_events: Optional[bool] = None
+    push_session_output: Optional[bool] = None
+    output_max_lines: Optional[int] = None
+
+
+@app.get("/api/telegram/status")
+async def telegram_status():
+    """Get Telegram bot status."""
+    return telegram_bot.get_status()
+
+
+@app.post("/api/telegram/start")
+async def telegram_start(req: TelegramStartRequest):
+    """Start the Telegram bot."""
+    try:
+        await telegram_bot.start(token=req.bot_token, allowed_users=req.allowed_user_ids)
+        # Register callbacks if not already registered
+        manager.add_status_callback(telegram_bot._on_session_status)
+        manager.add_completion_callback(telegram_bot._on_session_complete)
+        automation_controller.add_event_callback(telegram_bot._on_automation_event)
+        return {"success": True, "status": telegram_bot.get_status()}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/telegram/stop")
+async def telegram_stop():
+    """Stop the Telegram bot."""
+    try:
+        await telegram_bot.stop()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/telegram/config")
+async def telegram_get_config():
+    """Get Telegram bot config (token masked)."""
+    return telegram_bot.get_config().to_safe_dict()
+
+
+@app.put("/api/telegram/config")
+async def telegram_update_config(req: TelegramConfigUpdate):
+    """Update Telegram bot config."""
+    update_data = req.dict(exclude_none=True)
+    telegram_bot.update_config(update_data)
+    return {"success": True, "config": telegram_bot.get_config().to_safe_dict()}
 
 
 def run_server(

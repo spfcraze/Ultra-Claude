@@ -25,6 +25,7 @@ class NotificationChannel(Enum):
     """Available notification channels."""
     DISCORD = "discord"
     SLACK = "slack"
+    TELEGRAM = "telegram"
     EMAIL = "email"
     DESKTOP = "desktop"
 
@@ -62,6 +63,11 @@ class NotificationConfig:
     slack_enabled: bool = False
     slack_webhook_url: str = ""
 
+    # Telegram
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     # Email
     email_enabled: bool = False
     email_smtp_host: str = ""
@@ -80,6 +86,8 @@ class NotificationConfig:
             "discord_webhook_configured": bool(self.discord_webhook_url),
             "slack_enabled": self.slack_enabled,
             "slack_webhook_configured": bool(self.slack_webhook_url),
+            "telegram_enabled": self.telegram_enabled,
+            "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
             "email_enabled": self.email_enabled,
             "email_configured": bool(self.email_smtp_host and self.email_to),
         }
@@ -136,7 +144,8 @@ class ChannelConfig:
             "project_id": self.project_id,
             "events": self.events,
             "settings": {
-                k: v for k, v in self.settings.items()
+                k: ("***" if k in ("bot_token",) else v)
+                for k, v in self.settings.items()
                 if not k.endswith("_password")  # Don't expose passwords
             },
             "created_at": self.created_at,
@@ -193,6 +202,10 @@ class NotificationManager:
         elif config.channel == NotificationChannel.SLACK:
             target.slack_enabled = config.enabled
             target.slack_webhook_url = settings.get("webhook_url", "")
+        elif config.channel == NotificationChannel.TELEGRAM:
+            target.telegram_enabled = config.enabled
+            target.telegram_bot_token = settings.get("bot_token", "")
+            target.telegram_chat_id = settings.get("chat_id", "")
         elif config.channel == NotificationChannel.EMAIL:
             target.email_enabled = config.enabled
             target.email_smtp_host = settings.get("smtp_host", "")
@@ -223,6 +236,12 @@ class NotificationManager:
             elif config.channel == NotificationChannel.SLACK:
                 result = await self._send_slack(
                     config.settings.get("webhook_url", ""),
+                    test_notification
+                )
+            elif config.channel == NotificationChannel.TELEGRAM:
+                result = await self._send_telegram(
+                    config.settings.get("bot_token", ""),
+                    config.settings.get("chat_id", ""),
                     test_notification
                 )
             elif config.channel == NotificationChannel.EMAIL:
@@ -299,6 +318,11 @@ class NotificationManager:
         if config.slack_enabled and config.slack_webhook_url:
             results["channels"]["slack"] = await self._send_slack(
                 config.slack_webhook_url, notification
+            )
+
+        if config.telegram_enabled and config.telegram_bot_token and config.telegram_chat_id:
+            results["channels"]["telegram"] = await self._send_telegram(
+                config.telegram_bot_token, config.telegram_chat_id, notification
             )
 
         if config.email_enabled and config.email_smtp_host and config.email_to:
@@ -453,6 +477,71 @@ class NotificationManager:
         except Exception as e:
             logger.error(f"Slack notification failed: {e}")
             return {"success": False, "error": str(e)}
+
+    # ==================== Telegram ====================
+
+    async def _send_telegram(self, bot_token: str, chat_id: str, notification: Notification) -> dict:
+        """Send notification via Telegram Bot API."""
+        try:
+            # Severity indicators
+            indicators = {
+                "info": "\u2139\ufe0f",
+                "success": "\u2705",
+                "warning": "\u26a0\ufe0f",
+                "error": "\u274c",
+            }
+            indicator = indicators.get(notification.severity, indicators["info"])
+
+            # Build message with HTML formatting
+            lines = [
+                f"{indicator} <b>{self._escape_html(notification.title)}</b>",
+                "",
+                self._escape_html(notification.message),
+            ]
+
+            if notification.project_name:
+                lines.append(f"\n<b>Project:</b> {self._escape_html(notification.project_name)}")
+            if notification.issue_number:
+                lines.append(f"<b>Issue:</b> #{notification.issue_number}")
+            if notification.pr_number:
+                lines.append(f"<b>PR:</b> #{notification.pr_number}")
+            if notification.url:
+                lines.append(f"\n<a href=\"{notification.url}\">View on GitHub</a>")
+
+            lines.append(f"\n<i>UltraClaude</i>")
+
+            text = "\n".join(lines)
+
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, json=payload)
+                result = response.json()
+
+                if result.get("ok"):
+                    return {"success": True}
+                else:
+                    error_desc = result.get("description", f"HTTP {response.status_code}")
+                    return {"success": False, "error": error_desc}
+
+        except Exception as e:
+            logger.error(f"Telegram notification failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        """Escape HTML special characters for Telegram HTML parse mode."""
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
 
     # ==================== Email ====================
 

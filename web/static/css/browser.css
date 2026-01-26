@@ -171,8 +171,8 @@
 }
 
 .viewport-placeholder-icon {
-    font-size: 48px;
-    margin-bottom: 12px;
+    font-size: 64px;
+    margin-bottom: 16px;
     opacity: 0.4;
 }
 
@@ -182,7 +182,8 @@
 }
 
 .viewport-placeholder .hint {
-    font-size: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
     opacity: 0.7;
 }
 
@@ -258,6 +259,11 @@
     font-weight: 600;
     background: var(--bg-secondary);
     margin-left: 4px;
+}
+
+.panel-tab.active .panel-tab-badge {
+    background: var(--accent-cyan);
+    color: var(--bg-primary);
 }
 
 .panel-body {

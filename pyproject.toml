@@ -1,6 +1,6 @@
 [project]
 name = "ultraclaude"
-version = "0.1.0"
+version = "0.4.0"
 description = "Multi-session Claude Code manager with GitHub Issues integration and Multi-LLM Workflow Pipeline"
 readme = "README.md"
 requires-python = ">=3.11"

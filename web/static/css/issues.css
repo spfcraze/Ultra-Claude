@@ -23,6 +23,26 @@
     max-height: calc(100vh - 120px);
 }
 
+.pipeline-column[data-status="pending"] {
+    border-top: 3px solid var(--accent-purple);
+}
+
+.pipeline-column[data-status="in_progress"] {
+    border-top: 3px solid var(--accent-cyan);
+}
+
+.pipeline-column[data-status="verifying"] {
+    border-top: 3px solid var(--accent-yellow);
+}
+
+.pipeline-column[data-status="pr_created"] {
+    border-top: 3px solid var(--accent-green);
+}
+
+.pipeline-column[data-status="failed"] {
+    border-top: 3px solid var(--accent-red);
+}
+
 .pipeline-header {
     display: flex;
     align-items: center;
@@ -248,6 +268,10 @@
 
 .list-table tr:hover {
     background: var(--bg-secondary);
+}
+
+.list-table tr:nth-child(even) {
+    background: rgba(22, 27, 34, 0.5);
 }
 
 .list-table .issue-title {

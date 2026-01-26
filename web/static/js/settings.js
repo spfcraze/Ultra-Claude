@@ -27,6 +27,9 @@ function switchTab(tabName) {
         case 'webhooks':
             loadWebhooks();
             break;
+        case 'telegram':
+            loadTelegramStatus();
+            break;
         case 'system':
             loadSystemInfo();
             break;
@@ -376,6 +379,7 @@ function renderNotificationConfigs(configs) {
     const channelIcons = {
         discord: '💬',
         slack: '💼',
+        telegram: '✈️',
         email: '📧',
         desktop: '🖥️'
     };
@@ -439,6 +443,8 @@ function toggleNotificationSettings() {
 
     document.getElementById('webhook-settings').style.display =
         (channel === 'discord' || channel === 'slack') ? 'block' : 'none';
+    document.getElementById('telegram-settings').style.display =
+        channel === 'telegram' ? 'block' : 'none';
     document.getElementById('email-settings').style.display =
         channel === 'email' ? 'block' : 'none';
 
@@ -466,6 +472,9 @@ async function handleAddNotification(event) {
 
     if (channel === 'discord' || channel === 'slack') {
         configData.webhook_url = document.getElementById('notif-webhook-url').value;
+    } else if (channel === 'telegram') {
+        configData.bot_token = document.getElementById('notif-bot-token').value;
+        configData.chat_id = document.getElementById('notif-chat-id').value;
     } else if (channel === 'email') {
         configData.smtp_host = document.getElementById('notif-smtp-host').value;
         configData.smtp_port = parseInt(document.getElementById('notif-smtp-port').value);
@@ -575,6 +584,157 @@ function copyWebhookUrl() {
     }).catch(err => {
         console.error('Failed to copy:', err);
     });
+}
+
+// ==================== Telegram Bot ====================
+
+async function loadTelegramStatus() {
+    try {
+        const [statusRes, configRes] = await Promise.all([
+            fetch('/api/telegram/status'),
+            fetch('/api/telegram/config')
+        ]);
+
+        const status = await statusRes.json();
+        const config = await configRes.json();
+
+        updateTelegramUI(status, config);
+    } catch (error) {
+        console.error('Error loading Telegram status:', error);
+    }
+}
+
+function updateTelegramUI(status, config) {
+    // Update status card
+    const badge = document.getElementById('telegram-badge');
+    if (status.running) {
+        badge.textContent = 'Running';
+        badge.className = 'status-badge running';
+    } else {
+        badge.textContent = 'Stopped';
+        badge.className = 'status-badge stopped';
+    }
+
+    document.getElementById('telegram-running').textContent = status.running ? 'Yes' : 'No';
+    document.getElementById('telegram-username').textContent = status.username ? '@' + status.username : '-';
+    document.getElementById('telegram-started-at').textContent = status.started_at ? formatDate(status.started_at) : '-';
+    document.getElementById('telegram-allowed-users').textContent = status.allowed_users || 0;
+    document.getElementById('telegram-subscribed-chats').textContent = status.subscribed_chats || 0;
+
+    // Update buttons
+    document.getElementById('telegram-start-btn').disabled = status.running;
+    document.getElementById('telegram-stop-btn').disabled = !status.running;
+
+    // Update config form
+    if (config.bot_token) {
+        document.getElementById('tg-bot-token').placeholder = config.bot_token;
+    }
+    if (config.allowed_user_ids && config.allowed_user_ids.length > 0) {
+        document.getElementById('tg-allowed-users').value = config.allowed_user_ids.join(', ');
+    }
+    document.getElementById('tg-push-session-status').checked = config.push_session_status !== false;
+    document.getElementById('tg-push-automation-events').checked = config.push_automation_events !== false;
+    document.getElementById('tg-push-session-output').checked = config.push_session_output === true;
+    if (config.output_max_lines) {
+        document.getElementById('tg-output-max-lines').value = config.output_max_lines;
+    }
+}
+
+async function startTelegramBot() {
+    const token = document.getElementById('tg-bot-token').value;
+    const usersStr = document.getElementById('tg-allowed-users').value;
+
+    if (!token) {
+        alert('Please enter a bot token first.');
+        return;
+    }
+
+    const allowedUsers = usersStr
+        ? usersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        : [];
+
+    try {
+        const response = await fetch('/api/telegram/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                bot_token: token,
+                allowed_user_ids: allowedUsers
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Clear the token field after successful start
+            document.getElementById('tg-bot-token').value = '';
+            loadTelegramStatus();
+        } else {
+            alert('Error starting bot: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error starting bot: ' + error.message);
+    }
+}
+
+async function stopTelegramBot() {
+    if (!confirm('Stop the Telegram bot?')) return;
+
+    try {
+        const response = await fetch('/api/telegram/stop', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+            loadTelegramStatus();
+        } else {
+            alert('Error stopping bot: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error stopping bot: ' + error.message);
+    }
+}
+
+async function saveTelegramConfig(event) {
+    event.preventDefault();
+
+    const token = document.getElementById('tg-bot-token').value;
+    const usersStr = document.getElementById('tg-allowed-users').value;
+    const allowedUsers = usersStr
+        ? usersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        : [];
+
+    const configData = {
+        allowed_user_ids: allowedUsers,
+        push_session_status: document.getElementById('tg-push-session-status').checked,
+        push_automation_events: document.getElementById('tg-push-automation-events').checked,
+        push_session_output: document.getElementById('tg-push-session-output').checked,
+        output_max_lines: parseInt(document.getElementById('tg-output-max-lines').value) || 20,
+    };
+
+    // Only include token if user entered a new one
+    if (token) {
+        configData.bot_token = token;
+    }
+
+    try {
+        const response = await fetch('/api/telegram/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(configData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert('Telegram configuration saved.');
+            document.getElementById('tg-bot-token').value = '';
+            loadTelegramStatus();
+        } else {
+            alert('Error saving config: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error saving config: ' + error.message);
+    }
 }
 
 // ==================== System ====================

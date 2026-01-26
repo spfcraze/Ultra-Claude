@@ -13,23 +13,27 @@
     <div class="app">
         <!-- Header -->
         <header class="header">
-            <div class="logo">
-                <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
-                    <span class="logo-icon">⚡</span>
-                    <span class="logo-text">UltraClaude</span>
-                </a>
+            <div class="header-left">
+                <div class="logo">
+                    <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
+                        <span class="logo-icon">⚡</span>
+                        <span class="logo-text">UltraClaude</span>
+                    </a>
+                </div>
+                <nav class="nav-tabs">
+                    <a href="/" class="nav-tab" data-page="sessions"><span class="nav-tab-icon">◉</span> <span class="nav-tab-label">Sessions</span></a>
+                    <a href="/projects" class="nav-tab active" data-page="projects"><span class="nav-tab-icon">◫</span> <span class="nav-tab-label">Projects</span></a>
+                    <a href="/issues" class="nav-tab" data-page="issues"><span class="nav-tab-icon">◎</span> <span class="nav-tab-label">Issues</span></a>
+                    <a href="/workflows" class="nav-tab" data-page="workflows"><span class="nav-tab-icon">⟡</span> <span class="nav-tab-label">Workflows</span></a>
+                    <a href="/browser" class="nav-tab" data-page="browser"><span class="nav-tab-icon">◳</span> <span class="nav-tab-label">Browser</span></a>
+                    <a href="/settings" class="nav-tab" data-page="settings"><span class="nav-tab-icon">⚙</span> <span class="nav-tab-label">Settings</span></a>
+                </nav>
             </div>
-            <nav class="nav-tabs">
-                <a href="/" class="nav-tab">Sessions</a>
-                <a href="/projects" class="nav-tab active">Projects</a>
-                <a href="/issues" class="nav-tab">Issues</a>
-                <a href="/workflows" class="nav-tab">Workflows</a>
-                <a href="/browser" class="nav-tab">Browser</a>
-                <a href="/settings" class="nav-tab">Settings</a>
-            </nav>
-            <button class="btn btn-primary" onclick="showCreateProjectModal()">
-                + New Project
-            </button>
+            <div class="header-right">
+                <button class="btn btn-primary" onclick="showCreateProjectModal()">
+                    + New Project
+                </button>
+            </div>
         </header>
 
         <!-- Main Content -->

@@ -37,6 +37,11 @@
     color: white;
 }
 
+.settings-nav-item:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: -2px;
+}
+
 .settings-nav-item .nav-icon {
     font-size: 20px;
     margin-bottom: 4px;
@@ -213,6 +218,20 @@
 .guide-step {
     display: flex;
     gap: 16px;
+}
+
+.guide-step + .guide-step {
+    position: relative;
+}
+
+.guide-step + .guide-step::before {
+    content: '';
+    position: absolute;
+    left: 13px;
+    top: -16px;
+    width: 2px;
+    height: 16px;
+    background: var(--border-color);
 }
 
 .step-number {
