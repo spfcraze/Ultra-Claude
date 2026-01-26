@@ -1,11 +1,12 @@
 import asyncio
+import os
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from typing import Set, Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .logging_config import setup_logging, get_logger
 from .session_manager import manager, SessionStatus
@@ -15,15 +16,44 @@ from .models import (
 )
 from .github_client import get_github_client, GitHubError, GitHubAuthError, GitHubNotFoundError
 from .workflow.api import router as workflow_router
+from .browser.api import router as browser_router
+from .browser.manager import browser_manager
 from .scheduler import task_scheduler, ScheduledTask, TaskType
 from .webhooks import webhook_handler, WebhookConfig
 from .notifications import notification_manager, NotificationConfig, NotificationChannel, NotificationEvent, ChannelConfig
 from .daemon import daemon_manager
+from .auth import auth_config, get_current_user, require_auth, is_auth_enabled
+from .security import (
+    SecurityHeadersMiddleware, RateLimitMiddleware, HTTPSRedirectMiddleware,
+    validate_path, is_safe_path, rate_limiter, get_cors_origins
+)
+from .audit import audit_logger, AuditEventType, get_client_ip
 
 setup_logging()
 logger = get_logger("ultraclaude.server")
 
-app = FastAPI(title="UltraClaude", version="0.1.0")
+app = FastAPI(title="UltraClaude", version="0.3.0")
+
+# Add security middleware
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
+# CORS - restrict allowed origins (configurable via ULTRACLAUDE_CORS_ORIGINS env var)
+from fastapi.middleware.cors import CORSMiddleware
+
+cors_origins = get_cors_origins()
+allow_all = "*" in cors_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if allow_all else cors_origins,
+    allow_credentials=not allow_all,  # Cannot use credentials with wildcard origin
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+# HTTPS redirect - enable via ULTRACLAUDE_HTTPS_REDIRECT=true
+if os.environ.get("ULTRACLAUDE_HTTPS_REDIRECT", "").lower() in ("true", "1", "yes"):
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
@@ -33,6 +63,7 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
 
 app.include_router(workflow_router)
+app.include_router(browser_router)
 
 
 class ConnectionManager:
@@ -105,6 +136,25 @@ from .automation import automation_controller
 automation_controller.add_event_callback(on_automation_event)
 
 
+# Browser automation callbacks
+async def on_browser_status(session_id: str, status):
+    await ws_manager.broadcast({
+        "type": "browser_status",
+        "session_id": session_id,
+        "status": status.value,
+    })
+
+async def on_browser_action(session_id: str, action):
+    await ws_manager.broadcast({
+        "type": "browser_action",
+        "session_id": session_id,
+        "action": action.to_dict(),
+    })
+
+browser_manager.add_status_callback(on_browser_status)
+browser_manager.add_action_callback(on_browser_action)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Recover state and start output readers for any reconnected tmux sessions"""
@@ -140,6 +190,8 @@ async def shutdown_event():
     """Graceful shutdown"""
     task_scheduler.stop()
     logger.info("Task scheduler stopped")
+    await browser_manager.close_all()
+    logger.info("Browser sessions closed")
 
 
 @app.get("/health")
@@ -257,7 +309,189 @@ async def health_check():
         "version": __version__,
         "scheduler": task_scheduler.is_running() if task_scheduler else False,
         "websocket_connections": len(ws_manager.active_connections),
+        "auth_enabled": is_auth_enabled(),
     }
+
+
+# ==================== Authentication Endpoints ====================
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=8, max_length=256)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=256)
+
+
+@app.get("/api/auth/status")
+async def auth_status():
+    """Get authentication status."""
+    return {
+        "enabled": is_auth_enabled(),
+        "has_users": auth_config.has_users(),
+        "jwt_available": auth_config._jwt_secret is not None,
+    }
+
+
+@app.post("/api/auth/setup")
+async def auth_setup(request_data: RegisterRequest, request: Request):
+    """
+    Set up the first admin user.
+    Only works when no users exist.
+    """
+    client_ip = get_client_ip(request)
+
+    if auth_config.has_users():
+        raise HTTPException(
+            status_code=400,
+            detail="Users already exist. Use login instead."
+        )
+
+    if not auth_config.create_user(request_data.username, request_data.password):
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+    # Generate tokens
+    access_token = auth_config.create_access_token(request_data.username)
+    refresh_token = auth_config.create_refresh_token(request_data.username)
+
+    audit_logger.log(
+        AuditEventType.AUTH_SETUP,
+        source_ip=client_ip,
+        username=request_data.username,
+        details={"action": "first_user_created"},
+    )
+
+    return {
+        "success": True,
+        "message": "Admin user created successfully",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(request_data: LoginRequest, request: Request):
+    """Authenticate and get access token."""
+    client_ip = get_client_ip(request)
+
+    if not auth_config.authenticate(request_data.username, request_data.password):
+        audit_logger.log(
+            AuditEventType.AUTH_LOGIN_FAILED,
+            source_ip=client_ip,
+            username=request_data.username,
+            success=False,
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    access_token = auth_config.create_access_token(request_data.username)
+    refresh_token = auth_config.create_refresh_token(request_data.username)
+
+    audit_logger.log(
+        AuditEventType.AUTH_LOGIN_SUCCESS,
+        source_ip=client_ip,
+        username=request_data.username,
+    )
+
+    return {
+        "success": True,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
+@app.post("/api/auth/refresh")
+async def auth_refresh(request: Request):
+    """Refresh access token using refresh token."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+
+    refresh_token = auth_header[7:]
+    username = auth_config.verify_token(refresh_token, token_type="refresh")
+
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    access_token = auth_config.create_access_token(username)
+
+    return {
+        "success": True,
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(current_user: str = Depends(get_current_user)):
+    """Get current user info."""
+    if current_user is None:
+        return {"authenticated": False, "auth_enabled": False}
+    return {"authenticated": True, "username": current_user}
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(
+    request: ChangePasswordRequest,
+    current_user: str = Depends(require_auth)
+):
+    """Change current user's password."""
+    if not auth_config.authenticate(current_user, request.current_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    if len(request.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+
+    if not auth_config.update_password(current_user, request.new_password):
+        raise HTTPException(status_code=500, detail="Failed to update password")
+
+    return {"success": True, "message": "Password updated successfully"}
+
+
+@app.post("/api/auth/enable")
+async def auth_enable(current_user: str = Depends(require_auth)):
+    """Enable authentication (requires existing auth)."""
+    auth_config.enable()
+    return {"success": True, "message": "Authentication enabled"}
+
+
+@app.post("/api/auth/disable")
+async def auth_disable(current_user: str = Depends(require_auth)):
+    """Disable authentication (requires existing auth)."""
+    auth_config.disable()
+    return {"success": True, "message": "Authentication disabled"}
+
+
+@app.get("/api/audit/log")
+async def get_audit_log(
+    limit: int = 100,
+    event_type: Optional[str] = None,
+    current_user: str = Depends(get_current_user)
+):
+    """Get recent audit log entries."""
+    entries = audit_logger.get_recent(limit=min(limit, 500), event_type=event_type)
+    return {"entries": entries, "count": len(entries)}
+
+
+@app.get("/api/audit/failed-logins")
+async def get_failed_logins(
+    limit: int = 50,
+    current_user: str = Depends(get_current_user)
+):
+    """Get recent failed login attempts."""
+    entries = audit_logger.get_failed_logins(limit=min(limit, 200))
+    return {"entries": entries, "count": len(entries)}
 
 
 @app.get("/api/server/info")
@@ -481,56 +715,56 @@ async def websocket_endpoint(websocket: WebSocket):
 # ==================== Pydantic Models for Request Bodies ====================
 
 class ProjectCreate(BaseModel):
-    name: str
-    github_repo: str
-    github_token: str = ""
-    working_dir: str = ""
-    default_branch: str = "main"
+    name: str = Field(..., min_length=1, max_length=200)
+    github_repo: str = Field("", max_length=200)
+    github_token: str = Field("", max_length=500)
+    working_dir: str = Field("", max_length=1000)
+    default_branch: str = Field("main", max_length=100)
     auto_sync: bool = True
     auto_start: bool = False
-    verification_command: str = ""
-    lint_command: str = ""
-    build_command: str = ""
-    test_command: str = ""
-    max_concurrent: int = 1
+    verification_command: str = Field("", max_length=2000)
+    lint_command: str = Field("", max_length=2000)
+    build_command: str = Field("", max_length=2000)
+    test_command: str = Field("", max_length=2000)
+    max_concurrent: int = Field(1, ge=1, le=20)
     issue_filter: Optional[dict] = None
     # LLM Provider settings
-    llm_provider: str = "claude_code"  # claude_code, ollama, lm_studio, openrouter
-    llm_model: str = ""
-    llm_api_url: str = ""
-    llm_api_key: str = ""  # Will be encrypted before storage
-    llm_context_length: int = 8192
-    llm_temperature: float = 0.1
+    llm_provider: str = Field("claude_code", max_length=50)
+    llm_model: str = Field("", max_length=200)
+    llm_api_url: str = Field("", max_length=500)
+    llm_api_key: str = Field("", max_length=500)
+    llm_context_length: int = Field(8192, ge=1024, le=2000000)
+    llm_temperature: float = Field(0.1, ge=0.0, le=2.0)
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    github_token: Optional[str] = None
-    working_dir: Optional[str] = None
-    default_branch: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    github_token: Optional[str] = Field(None, max_length=500)
+    working_dir: Optional[str] = Field(None, max_length=1000)
+    default_branch: Optional[str] = Field(None, max_length=100)
     auto_sync: Optional[bool] = None
     auto_start: Optional[bool] = None
-    verification_command: Optional[str] = None
-    lint_command: Optional[str] = None
-    build_command: Optional[str] = None
-    test_command: Optional[str] = None
-    max_concurrent: Optional[int] = None
+    verification_command: Optional[str] = Field(None, max_length=2000)
+    lint_command: Optional[str] = Field(None, max_length=2000)
+    build_command: Optional[str] = Field(None, max_length=2000)
+    test_command: Optional[str] = Field(None, max_length=2000)
+    max_concurrent: Optional[int] = Field(None, ge=1, le=20)
     issue_filter: Optional[dict] = None
     # LLM Provider settings
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
-    llm_api_url: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    llm_context_length: Optional[int] = None
-    llm_temperature: Optional[float] = None
+    llm_provider: Optional[str] = Field(None, max_length=50)
+    llm_model: Optional[str] = Field(None, max_length=200)
+    llm_api_url: Optional[str] = Field(None, max_length=500)
+    llm_api_key: Optional[str] = Field(None, max_length=500)
+    llm_context_length: Optional[int] = Field(None, ge=1024, le=2000000)
+    llm_temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
 
 
 class LLMTestRequest(BaseModel):
     """Request body for testing LLM connection"""
-    provider: str  # ollama, lm_studio, openrouter
-    api_url: str = ""
-    api_key: str = ""
-    model_name: str = ""
+    provider: str = Field(..., max_length=50)
+    api_url: str = Field("", max_length=500)
+    api_key: str = Field("", max_length=500)
+    model_name: str = Field("", max_length=200)
 
 
 # ==================== Project API Endpoints ====================
@@ -553,21 +787,30 @@ async def workflows_page(request: Request):
     return templates.TemplateResponse("workflows.html", {"request": request})
 
 
+@app.get("/browser", response_class=HTMLResponse)
+async def browser_page(request: Request):
+    return templates.TemplateResponse("browser.html", {"request": request})
+
+
 @app.get("/api/browse-dirs")
 async def browse_directories(path: str = "~"):
     import os
-    
+
     if path == "~":
         path = os.path.expanduser("~")
-    
-    path = os.path.abspath(path)
-    
+
+    # Validate path to prevent traversal attacks
+    try:
+        path = validate_path(path)
+    except HTTPException:
+        return {"error": "Access denied", "path": path, "dirs": [], "parent": None}
+
     if not os.path.exists(path):
         return {"error": "Path does not exist", "path": path, "dirs": [], "parent": None}
-    
+
     if not os.path.isdir(path):
         path = os.path.dirname(path)
-    
+
     try:
         entries = os.listdir(path)
     except PermissionError:
@@ -1014,61 +1257,52 @@ async def setup_git_repository(project_id: int):
         git_dir = os.path.join(working_dir, ".git")
         if os.path.isdir(git_dir):
             # It's a git repo - fetch and pull latest using credential helper
-            import tempfile
-
-            # Create a temporary credential helper script
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-                f.write(f'''#!/bin/bash
-echo "username=x-access-token"
-echo "password={token}"
-''')
-                credential_helper = f.name
-
-            os.chmod(credential_helper, 0o700)
+            from .git_credentials import secure_credential_helper, git_env
 
             try:
-                # Fetch from remote with credentials
-                subprocess.run(
-                    ["git", "-c", f"credential.helper=!{credential_helper}", "fetch", "origin"],
-                    cwd=working_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-                )
+                with secure_credential_helper(token) as credential_helper:
+                    # Fetch from remote with credentials
+                    subprocess.run(
+                        ["git", "-c", f"credential.helper=!{credential_helper}", "fetch", "origin"],
+                        cwd=working_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        env=git_env()
+                    )
 
-                # Checkout default branch
-                subprocess.run(
-                    ["git", "checkout", project.default_branch],
-                    cwd=working_dir,
-                    capture_output=True,
-                    text=True
-                )
+                    # Checkout default branch
+                    subprocess.run(
+                        ["git", "checkout", project.default_branch],
+                        cwd=working_dir,
+                        capture_output=True,
+                        text=True
+                    )
 
-                # Pull latest with credentials
-                result = subprocess.run(
-                    ["git", "-c", f"credential.helper=!{credential_helper}", "pull", "origin", project.default_branch],
-                    cwd=working_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-                )
+                    # Pull latest with credentials
+                    result = subprocess.run(
+                        ["git", "-c", f"credential.helper=!{credential_helper}", "pull", "origin", project.default_branch],
+                        cwd=working_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        env=git_env()
+                    )
 
-                if result.returncode != 0:
-                    error_msg = result.stderr.replace(token, "***")
+                    if result.returncode != 0:
+                        error_msg = result.stderr.replace(token, "***")
+                        return {
+                            "success": False,
+                            "action": "pull",
+                            "message": f"Failed to pull latest changes: {error_msg}"
+                        }
+
                     return {
-                        "success": False,
-                        "action": "pull",
-                        "message": f"Failed to pull latest changes: {error_msg}"
+                        "success": True,
+                        "action": "updated",
+                        "message": f"Repository updated successfully",
+                        "output": result.stdout
                     }
-
-                return {
-                    "success": True,
-                    "action": "updated",
-                    "message": f"Repository updated successfully",
-                    "output": result.stdout
-                }
             except subprocess.TimeoutExpired:
                 return {
                     "success": False,
@@ -1081,12 +1315,6 @@ echo "password={token}"
                     "action": "pull",
                     "message": str(e)
                 }
-            finally:
-                # Clean up credential helper
-                try:
-                    os.unlink(credential_helper)
-                except:
-                    pass
         else:
             # Directory exists but is not a git repo
             # We should not overwrite - inform user
@@ -1103,19 +1331,9 @@ echo "password={token}"
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir)
 
-            import tempfile
+            from .git_credentials import secure_credential_helper, git_env
 
-            # Create a temporary credential helper script
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-                f.write(f'''#!/bin/bash
-echo "username=x-access-token"
-echo "password={token}"
-''')
-                credential_helper = f.name
-
-            os.chmod(credential_helper, 0o700)
-
-            try:
+            with secure_credential_helper(token) as credential_helper:
                 # Clone using the credential helper
                 https_url = f"https://github.com/{project.github_repo}.git"
                 result = subprocess.run(
@@ -1125,14 +1343,8 @@ echo "password={token}"
                     capture_output=True,
                     text=True,
                     timeout=300,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+                    env=git_env()
                 )
-            finally:
-                # Clean up credential helper script
-                try:
-                    os.unlink(credential_helper)
-                except:
-                    pass
 
             if result.returncode != 0:
                 # Sanitize error message to not expose token
@@ -1202,7 +1414,6 @@ async def pull_git_repository(project_id: int):
 
     import os
     import subprocess
-    import tempfile
 
     if not os.path.isdir(os.path.join(working_dir, ".git")):
         raise HTTPException(status_code=400, detail="Not a git repository. Use setup endpoint first.")
@@ -1211,51 +1422,38 @@ async def pull_git_repository(project_id: int):
     if not token:
         raise HTTPException(status_code=400, detail="No GitHub token configured")
 
-    # Create a temporary credential helper script
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-        f.write(f'''#!/bin/bash
-echo "username=x-access-token"
-echo "password={token}"
-''')
-        credential_helper = f.name
-
-    os.chmod(credential_helper, 0o700)
+    from .git_credentials import secure_credential_helper, git_env
 
     try:
-        # Fetch with credentials
-        subprocess.run(
-            ["git", "-c", f"credential.helper=!{credential_helper}", "fetch", "origin"],
-            cwd=working_dir,
-            capture_output=True,
-            timeout=60,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        )
+        with secure_credential_helper(token) as credential_helper:
+            # Fetch with credentials
+            subprocess.run(
+                ["git", "-c", f"credential.helper=!{credential_helper}", "fetch", "origin"],
+                cwd=working_dir,
+                capture_output=True,
+                timeout=60,
+                env=git_env()
+            )
 
-        # Pull with credentials
-        result = subprocess.run(
-            ["git", "-c", f"credential.helper=!{credential_helper}", "pull", "origin", project.default_branch],
-            cwd=working_dir,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        )
+            # Pull with credentials
+            result = subprocess.run(
+                ["git", "-c", f"credential.helper=!{credential_helper}", "pull", "origin", project.default_branch],
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=git_env()
+            )
 
-        if result.returncode != 0:
-            error_msg = result.stderr.replace(token, "***")
-            return {"success": False, "message": error_msg}
+            if result.returncode != 0:
+                error_msg = result.stderr.replace(token, "***")
+                return {"success": False, "message": error_msg}
 
-        return {"success": True, "message": "Pulled latest changes", "output": result.stdout}
+            return {"success": True, "message": "Pulled latest changes", "output": result.stdout}
     except subprocess.TimeoutExpired:
         return {"success": False, "message": "Pull operation timed out"}
     except Exception as e:
         return {"success": False, "message": str(e)}
-    finally:
-        # Clean up credential helper
-        try:
-            os.unlink(credential_helper)
-        except:
-            pass
 
 
 @app.get("/api/projects/{project_id}/issues")
@@ -1695,9 +1893,9 @@ async def get_scheduler_task(task_id: str):
 
 
 class ScheduledTaskCreate(BaseModel):
-    name: str
-    task_type: str  # issue_sync, health_check, session_cleanup, auto_retry, pr_status_check, custom
-    schedule: str  # Cron expression or interval (e.g., "*/15 * * * *" or "15m")
+    name: str = Field(..., min_length=1, max_length=200)
+    task_type: str = Field(..., max_length=50)
+    schedule: str = Field(..., max_length=100)
     enabled: bool = True
     project_id: Optional[int] = None
     config: Optional[dict] = None
@@ -1803,11 +2001,11 @@ async def get_project_webhook_config(project_id: int):
 
 class WebhookConfigUpdate(BaseModel):
     enabled: bool = True
-    github_secret: Optional[str] = None
+    github_secret: Optional[str] = Field(None, max_length=256)
     auto_queue_issues: bool = True
-    auto_start_on_label: str = ""
-    trigger_labels: List[str] = []
-    ignore_labels: List[str] = []
+    auto_start_on_label: str = Field("", max_length=100)
+    trigger_labels: List[str] = Field(default_factory=list, max_length=50)
+    ignore_labels: List[str] = Field(default_factory=list, max_length=50)
 
 
 @app.put("/api/projects/{project_id}/webhooks")
@@ -1915,19 +2113,19 @@ async def get_notification_config(config_id: str):
 
 
 class NotificationConfigCreate(BaseModel):
-    name: str
-    channel: str  # discord, slack, email, desktop
+    name: str = Field(..., min_length=1, max_length=200)
+    channel: str = Field(..., max_length=50)
     enabled: bool = True
     project_id: Optional[int] = None  # None = global
-    events: List[str] = []  # Events to trigger notifications for
+    events: List[str] = Field(default_factory=list, max_length=50)
     # Channel-specific settings
-    webhook_url: Optional[str] = None  # For Discord/Slack
-    smtp_host: Optional[str] = None
-    smtp_port: int = 587
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
-    smtp_from: Optional[str] = None
-    smtp_to: Optional[List[str]] = None
+    webhook_url: Optional[str] = Field(None, max_length=2000)
+    smtp_host: Optional[str] = Field(None, max_length=500)
+    smtp_port: int = Field(587, ge=1, le=65535)
+    smtp_user: Optional[str] = Field(None, max_length=500)
+    smtp_password: Optional[str] = Field(None, max_length=500)
+    smtp_from: Optional[str] = Field(None, max_length=500)
+    smtp_to: Optional[List[str]] = Field(None, max_length=50)
     smtp_use_tls: bool = True
 
 
@@ -2088,14 +2286,26 @@ async def get_system_settings():
     """Get all system settings"""
     from .database import db
 
-    settings = db.get_all_settings()
+    # Filter out sensitive internal settings
+    HIDDEN_SETTINGS = {'jwt_secret', 'auth_users', 'auth_enabled'}
+    settings = {
+        k: v for k, v in db.get_all_settings().items()
+        if k not in HIDDEN_SETTINGS
+    }
     return {"settings": settings}
+
+
+# Sensitive settings that cannot be read or written via the API
+PROTECTED_SETTINGS = {'jwt_secret', 'auth_users', 'auth_enabled'}
 
 
 @app.get("/api/settings/{key}")
 async def get_system_setting(key: str):
     """Get a specific system setting"""
     from .database import db
+
+    if key in PROTECTED_SETTINGS:
+        raise HTTPException(status_code=403, detail="Access denied to protected setting")
 
     value = db.get_setting(key)
     if value is None:
@@ -2104,7 +2314,7 @@ async def get_system_setting(key: str):
 
 
 class SettingUpdate(BaseModel):
-    value: str
+    value: str = Field(..., max_length=10000)
 
 
 @app.put("/api/settings/{key}")
@@ -2112,10 +2322,60 @@ async def update_system_setting(key: str, setting: SettingUpdate):
     """Update a system setting"""
     from .database import db
 
+    if key in PROTECTED_SETTINGS:
+        raise HTTPException(status_code=403, detail="Cannot modify protected setting")
+
     db.set_setting(key, setting.value)
     return {"success": True, "key": key, "value": setting.value}
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8420):
+def run_server(
+    host: str = "127.0.0.1",
+    port: int = 8420,
+    ssl_certfile: Optional[str] = None,
+    ssl_keyfile: Optional[str] = None,
+):
+    """
+    Run the UltraClaude server.
+
+    Args:
+        host: Bind address. Default is 127.0.0.1 (localhost only) for security.
+              Use 0.0.0.0 to allow external connections, but ensure authentication
+              is enabled and a firewall is configured.
+        port: Port to listen on (default: 8420)
+        ssl_certfile: Path to SSL certificate file (PEM format).
+                      Can also be set via ULTRACLAUDE_SSL_CERTFILE env var.
+        ssl_keyfile: Path to SSL private key file (PEM format).
+                     Can also be set via ULTRACLAUDE_SSL_KEYFILE env var.
+    """
     import uvicorn
-    uvicorn.run(app, host=host, port=port)
+
+    # Warn if binding to all interfaces without auth
+    if host == "0.0.0.0" and not is_auth_enabled():
+        logger.warning(
+            "WARNING: Server is binding to 0.0.0.0 but authentication is DISABLED. "
+            "This exposes UltraClaude to the network without protection. "
+            "Enable auth with ULTRACLAUDE_AUTH_ENABLED=true or restrict to localhost."
+        )
+
+    # SSL configuration from args or env vars
+    certfile = ssl_certfile or os.environ.get("ULTRACLAUDE_SSL_CERTFILE")
+    keyfile = ssl_keyfile or os.environ.get("ULTRACLAUDE_SSL_KEYFILE")
+
+    kwargs = {"host": host, "port": port}
+
+    if certfile and keyfile:
+        if not os.path.isfile(certfile):
+            logger.error(f"SSL certificate file not found: {certfile}")
+            return
+        if not os.path.isfile(keyfile):
+            logger.error(f"SSL key file not found: {keyfile}")
+            return
+        kwargs["ssl_certfile"] = certfile
+        kwargs["ssl_keyfile"] = keyfile
+        logger.info(f"HTTPS enabled with cert={certfile}")
+    elif certfile or keyfile:
+        logger.error("Both ssl_certfile and ssl_keyfile must be provided for HTTPS")
+        return
+
+    uvicorn.run(app, **kwargs)

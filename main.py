@@ -21,7 +21,7 @@ def cli():
 
 
 @cli.command()
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--host", default="127.0.0.1", help="Host to bind to (use 0.0.0.0 for external access, requires auth)")
 @click.option("--port", default=8420, help="Port to bind to")
 @click.option("--sessions", "-n", default=0, help="Number of sessions to start immediately")
 @click.option("--working-dir", "-d", default=None, help="Working directory for new sessions")

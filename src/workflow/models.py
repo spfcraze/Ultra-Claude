@@ -32,6 +32,7 @@ class PhaseRole(Enum):
     REVIEWER_SECURITY = "reviewer_security"
     REVIEWER_CUSTOM = "reviewer_custom"
     VERIFIER = "verifier"
+    BROWSER_VERIFIER = "browser_verifier"
 
 
 class PhaseStatus(Enum):
@@ -64,6 +65,7 @@ class ArtifactType(Enum):
     CODE_DIFF = "code_diff"
     REVIEW_REPORT = "review_report"
     VERIFICATION_REPORT = "verification_report"
+    BROWSER_VERIFICATION_REPORT = "browser_verification_report"
     CUSTOM = "custom"
 
 

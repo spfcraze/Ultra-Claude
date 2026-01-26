@@ -97,22 +97,37 @@ async def _update(check_only: bool, force: bool):
 
 
 @main.command()
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--host", default="127.0.0.1", help="Host to bind to (use 0.0.0.0 for external access, requires auth)")
 @click.option("--port", default=8420, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-def serve(host: str, port: int, reload: bool):
+@click.option("--ssl-certfile", default=None, help="Path to SSL certificate (PEM). Also: ULTRACLAUDE_SSL_CERTFILE env var")
+@click.option("--ssl-keyfile", default=None, help="Path to SSL private key (PEM). Also: ULTRACLAUDE_SSL_KEYFILE env var")
+def serve(host: str, port: int, reload: bool, ssl_certfile: str, ssl_keyfile: str):
     """Start the UltraClaude server."""
+    import os
     import uvicorn
-    
+
+    # Resolve SSL from args or env vars
+    certfile = ssl_certfile or os.environ.get("ULTRACLAUDE_SSL_CERTFILE")
+    keyfile = ssl_keyfile or os.environ.get("ULTRACLAUDE_SSL_KEYFILE")
+
+    scheme = "https" if (certfile and keyfile) else "http"
     console.print(f"[bold cyan]Starting UltraClaude server...[/bold cyan]")
-    console.print(f"URL: http://{host if host != '0.0.0.0' else 'localhost'}:{port}")
-    
-    uvicorn.run(
-        "src.server:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
+    console.print(f"URL: {scheme}://{host if host != '0.0.0.0' else 'localhost'}:{port}")
+
+    if certfile and keyfile:
+        console.print(f"[green]HTTPS enabled[/green] cert={certfile}")
+
+    kwargs = {
+        "host": host,
+        "port": port,
+        "reload": reload,
+    }
+    if certfile and keyfile:
+        kwargs["ssl_certfile"] = certfile
+        kwargs["ssl_keyfile"] = keyfile
+
+    uvicorn.run("src.server:app", **kwargs)
 
 
 if __name__ == "__main__":

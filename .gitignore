@@ -61,3 +61,4 @@ client_secret*.json
 
 # Build artifacts
 =0.25.0
+/docs

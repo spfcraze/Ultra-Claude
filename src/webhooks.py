@@ -179,15 +179,24 @@ class WebhookHandler:
                 "error": "Webhooks not enabled for this project",
             }
 
-        # Verify signature if secret is configured
+        # Verify webhook signature
         if config.github_secret and raw_payload:
             signature = headers.get("x-hub-signature-256", headers.get("x-hub-signature", ""))
             if not self.verify_github_signature(raw_payload, signature, config.github_secret):
-                logger.warning(f"Invalid webhook signature for project {project_id}")
+                logger.warning(
+                    f"SECURITY: Invalid webhook signature for project {project_id} "
+                    f"from {headers.get('x-forwarded-for', headers.get('x-real-ip', 'unknown'))}"
+                )
                 return {
                     "success": False,
                     "error": "Invalid signature",
                 }
+        elif not config.github_secret:
+            # No secret configured - log warning for visibility
+            logger.warning(
+                f"SECURITY: Webhook received for project {project_id} without signature verification. "
+                f"Configure a webhook secret for this project to enable verification."
+            )
 
         # Create event record
         event = WebhookEvent(

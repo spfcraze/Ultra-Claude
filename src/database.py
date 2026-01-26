@@ -4,12 +4,59 @@ SQLite database backend for UltraClaude
 import sqlite3
 import json
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from contextlib import contextmanager
 from datetime import datetime
 
 DATA_DIR = Path.home() / ".ultraclaude"
 DB_FILE = DATA_DIR / "ultraclaude.db"
+
+# Field whitelists for SQL injection prevention
+ALLOWED_PROJECT_FIELDS: Set[str] = {
+    'name', 'github_repo', 'github_token_encrypted', 'working_dir',
+    'default_branch', 'issue_filter', 'auto_sync', 'auto_start',
+    'verification_command', 'lint_command', 'build_command', 'test_command',
+    'max_concurrent', 'status', 'last_sync', 'llm_provider', 'llm_model',
+    'llm_api_url', 'llm_api_key_encrypted', 'llm_context_length', 'llm_temperature'
+}
+
+ALLOWED_ISSUE_SESSION_FIELDS: Set[str] = {
+    'project_id', 'github_issue_number', 'github_issue_title', 'github_issue_body',
+    'github_issue_labels', 'github_issue_url', 'session_id', 'status', 'branch_name',
+    'pr_number', 'pr_url', 'attempts', 'max_attempts', 'last_error',
+    'verification_results', 'context_files', 'started_at', 'completed_at'
+}
+
+ALLOWED_WORKFLOW_TEMPLATE_FIELDS: Set[str] = {
+    'name', 'description', 'phases', 'max_iterations', 'iteration_behavior',
+    'failure_behavior', 'budget_limit', 'budget_scope', 'is_default', 'is_global', 'project_id'
+}
+
+ALLOWED_WORKFLOW_EXECUTION_FIELDS: Set[str] = {
+    'template_id', 'template_name', 'trigger_mode', 'project_id', 'project_path',
+    'issue_session_id', 'task_description', 'status', 'current_phase_id', 'iteration',
+    'artifact_ids', 'total_tokens_input', 'total_tokens_output', 'total_cost_usd',
+    'budget_limit', 'iteration_behavior', 'interactive_mode', 'started_at', 'completed_at'
+}
+
+ALLOWED_PHASE_EXECUTION_FIELDS: Set[str] = {
+    'workflow_execution_id', 'phase_id', 'phase_name', 'phase_role', 'session_id',
+    'provider_used', 'model_used', 'status', 'iteration', 'input_artifact_ids',
+    'output_artifact_id', 'tokens_input', 'tokens_output', 'cost_usd',
+    'started_at', 'completed_at', 'error_message'
+}
+
+ALLOWED_ARTIFACT_FIELDS: Set[str] = {
+    'workflow_execution_id', 'phase_execution_id', 'artifact_type', 'name',
+    'content', 'file_path', 'metadata', 'is_edited'
+}
+
+
+def _validate_field(field: str, allowed_fields: Set[str]) -> str:
+    """Validate a field name against a whitelist to prevent SQL injection."""
+    if field not in allowed_fields:
+        raise ValueError(f"Invalid field name: {field}")
+    return field
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -470,16 +517,21 @@ class Database:
         for key, value in data.items():
             if key == 'id':
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_PROJECT_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key == 'issue_filter':
                 value = json.dumps(value) if isinstance(value, dict) else value
             elif key in ('auto_sync', 'auto_start'):
                 value = int(value)
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         values.append(project_id)
         with self._get_connection() as conn:
             conn.execute(
@@ -602,14 +654,19 @@ class Database:
         for key, value in data.items():
             if key == 'id':
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_ISSUE_SESSION_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key in ('github_issue_labels', 'verification_results', 'context_files'):
                 value = json.dumps(value) if isinstance(value, list) else value
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         values.append(session_id)
         with self._get_connection() as conn:
             conn.execute(
@@ -754,20 +811,25 @@ class Database:
         for key, value in data.items():
             if key == 'id':
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_WORKFLOW_TEMPLATE_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key == 'phases':
                 value = json.dumps(value) if isinstance(value, list) else value
             elif key in ('is_default', 'is_global'):
                 value = int(value)
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         fields.append("updated_at = ?")
         values.append(datetime.now().isoformat())
         values.append(template_id)
-        
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 f"UPDATE workflow_templates SET {', '.join(fields)} WHERE id = ?",
@@ -889,16 +951,21 @@ class Database:
         for key, value in data.items():
             if key in ('id', 'phase_executions'):
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_WORKFLOW_EXECUTION_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key == 'artifact_ids':
                 value = json.dumps(value) if isinstance(value, list) else value
             elif key == 'interactive_mode':
                 value = int(value)
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         values.append(execution_id)
         with self._get_connection() as conn:
             cursor = conn.execute(
@@ -996,14 +1063,19 @@ class Database:
         for key, value in data.items():
             if key == 'id':
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_PHASE_EXECUTION_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key == 'input_artifact_ids':
                 value = json.dumps(value) if isinstance(value, list) else value
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         values.append(phase_exec_id)
         with self._get_connection() as conn:
             cursor = conn.execute(
@@ -1089,20 +1161,25 @@ class Database:
         for key, value in data.items():
             if key == 'id':
                 continue
+            # Validate field name against whitelist to prevent SQL injection
+            try:
+                _validate_field(key, ALLOWED_ARTIFACT_FIELDS)
+            except ValueError:
+                continue  # Skip invalid fields
             if key == 'metadata':
                 value = json.dumps(value) if isinstance(value, dict) else value
             elif key == 'is_edited':
                 value = int(value)
             fields.append(f"{key} = ?")
             values.append(value)
-        
+
         if not fields:
             return False
-        
+
         fields.append("updated_at = ?")
         values.append(datetime.now().isoformat())
         values.append(artifact_id)
-        
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 f"UPDATE artifacts SET {', '.join(fields)} WHERE id = ?",

@@ -65,7 +65,7 @@ class DaemonManager:
 
     # ==================== Service File Generation ====================
 
-    def _generate_systemd_service(self, host: str = "0.0.0.0", port: int = 8420) -> str:
+    def _generate_systemd_service(self, host: str = "127.0.0.1", port: int = 8420) -> str:
         """Generate systemd service unit file content."""
         user = os.environ.get("USER", "root")
         working_dir = str(self._project_root)
@@ -100,7 +100,7 @@ ReadWritePaths={working_dir} {os.environ.get('HOME', '')}/.ultraclaude
 WantedBy=multi-user.target
 """
 
-    def _generate_launchd_plist(self, host: str = "0.0.0.0", port: int = 8420) -> str:
+    def _generate_launchd_plist(self, host: str = "127.0.0.1", port: int = 8420) -> str:
         """Generate macOS launchd plist file content."""
         working_dir = str(self._project_root)
         home_dir = os.environ.get("HOME", "~")
@@ -172,7 +172,7 @@ WantedBy=multi-user.target
 
     # ==================== Install ====================
 
-    async def install(self, host: str = "0.0.0.0", port: int = 8420) -> dict:
+    async def install(self, host: str = "127.0.0.1", port: int = 8420) -> dict:
         """Install UltraClaude as a system service."""
         if self._is_linux:
             return await self._install_systemd(host, port)

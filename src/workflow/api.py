@@ -3,7 +3,7 @@ import threading
 from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import (
     WorkflowStatus,
@@ -162,37 +162,37 @@ approval_manager = ApprovalManager()
 
 
 class WorkflowCreateRequest(BaseModel):
-    task_description: str
-    project_path: str = ""
-    template_id: str | None = None
+    task_description: str = Field(..., min_length=1, max_length=50000)
+    project_path: str = Field("", max_length=1000)
+    template_id: str | None = Field(None, max_length=100)
     project_id: int | None = None
     issue_session_id: int | None = None
-    budget_limit: float | None = None
+    budget_limit: float | None = Field(None, ge=0, le=10000)
     interactive_mode: bool = False
 
 
 class TemplateCreateRequest(BaseModel):
-    name: str
-    description: str = ""
-    phases: list[dict[str, Any]] = []
-    max_iterations: int = 3
-    iteration_behavior: str = "auto_iterate"
-    failure_behavior: str = "pause_notify"
-    budget_limit: float | None = None
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field("", max_length=2000)
+    phases: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    max_iterations: int = Field(3, ge=1, le=50)
+    iteration_behavior: str = Field("auto_iterate", max_length=50)
+    failure_behavior: str = Field("pause_notify", max_length=50)
+    budget_limit: float | None = Field(None, ge=0, le=10000)
     is_global: bool = True
     project_id: int | None = None
 
 
 class ProviderKeysRequest(BaseModel):
-    gemini_api_key: str = ""
-    openai_api_key: str = ""
-    openrouter_api_key: str = ""
-    ollama_url: str = "http://localhost:11434"
-    lm_studio_url: str = "http://localhost:1234/v1"
+    gemini_api_key: str = Field("", max_length=500)
+    openai_api_key: str = Field("", max_length=500)
+    openrouter_api_key: str = Field("", max_length=500)
+    ollama_url: str = Field("http://localhost:11434", max_length=500)
+    lm_studio_url: str = Field("http://localhost:1234/v1", max_length=500)
 
 
 class OAuthClientConfigRequest(BaseModel):
-    client_config: dict[str, Any]
+    client_config: dict[str, Any]  # Validated by OAuth handler
 
 
 @router.get("/templates")
