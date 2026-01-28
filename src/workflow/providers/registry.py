@@ -5,6 +5,7 @@ from .base import WorkflowLLMProvider, ModelInfo
 from .claude_code import ClaudeCodeProvider, CLAUDE_CODE_MODELS
 from .gemini import GeminiSDKProvider, GeminiOpenRouterProvider, GEMINI_MODELS
 from .gemini_oauth import GeminiOAuthProvider
+from .antigravity import AntigravityProvider, ANTIGRAVITY_MODELS
 from .openai import OpenAIProvider, OpenRouterProvider, OPENAI_MODELS
 from .ollama import OllamaProvider, detect_ollama
 from .lm_studio import LMStudioProvider, detect_lm_studio
@@ -55,6 +56,8 @@ class ModelRegistry:
             return GeminiOpenRouterProvider(config, api_key)
         elif config.provider_type == ProviderType.GEMINI_OAUTH:
             return GeminiOAuthProvider(config, oauth_manager)
+        elif config.provider_type == ProviderType.ANTIGRAVITY:
+            return AntigravityProvider(config, oauth_manager)
         elif config.provider_type == ProviderType.OPENAI:
             return OpenAIProvider(config, api_key)
         elif config.provider_type == ProviderType.OPENROUTER:
@@ -151,6 +154,20 @@ class ModelRegistry:
             provider = ClaudeCodeProvider(config)
             models = await provider.list_models()
 
+        elif provider_type == ProviderType.ANTIGRAVITY:
+            for model_id, info in ANTIGRAVITY_MODELS.items():
+                models.append(ModelInfo(
+                    model_id=model_id,
+                    model_name=info.get("name", model_id),
+                    provider=provider_type.value,
+                    context_length=int(info["context"]),
+                    supports_tools=True,
+                    supports_vision=info.get("family") == "gemini",
+                    cost_input_per_1k=info["input"],
+                    cost_output_per_1k=info["output"],
+                    metadata={"family": info.get("family", "unknown")},
+                ))
+
         for model in models:
             db.upsert_model({
                 'provider': provider_type.value,
@@ -179,6 +196,7 @@ class ModelRegistry:
             ProviderType.OPENROUTER,
             ProviderType.OLLAMA,
             ProviderType.LM_STUDIO,
+            ProviderType.ANTIGRAVITY,
         ]:
             try:
                 models = await self.refresh_models(ptype)
@@ -280,6 +298,10 @@ class ModelRegistry:
             'claude_sdk': {
                 'configured': True,
                 'type': 'sdk',
+            },
+            'antigravity': {
+                'configured': oauth_manager.is_authenticated("antigravity"),
+                'type': 'oauth',
             },
         }
 

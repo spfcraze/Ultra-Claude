@@ -1,5 +1,5 @@
 """
-Secure Git credential helper for UltraClaude.
+Secure Git credential helper for Autowrkers.
 
 Replaces insecure NamedTemporaryFile(delete=False) pattern with a context manager
 that guarantees cleanup and uses restrictive permissions.
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.git_credentials")
+logger = get_logger("autowrkers.git_credentials")
 
 
 @contextmanager

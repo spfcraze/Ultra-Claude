@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-UltraClaude - Multi-session Claude Code Manager
+Autowrkers - Multi-session Claude Code Manager
 
 A hybrid terminal + web dashboard tool for managing multiple Claude Code sessions in parallel.
 """
@@ -16,7 +16,7 @@ console = Console()
 @click.group()
 @click.version_option(version="0.1.0")
 def cli():
-    """UltraClaude - Multi-session Claude Code Manager"""
+    """Autowrkers - Multi-session Claude Code Manager"""
     pass
 
 
@@ -26,13 +26,13 @@ def cli():
 @click.option("--sessions", "-n", default=0, help="Number of sessions to start immediately")
 @click.option("--working-dir", "-d", default=None, help="Working directory for new sessions")
 def start(host: str, port: int, sessions: int, working_dir: str):
-    """Start the UltraClaude server and web dashboard"""
+    """Start the Autowrkers server and web dashboard"""
     from src.server import app, run_server
     from src.session_manager import manager
     from src.notifier import notify_session_needs_attention
 
     console.print(Panel.fit(
-        "[bold cyan]UltraClaude[/bold cyan] - Multi-session Claude Code Manager\n"
+        "[bold cyan]Autowrkers[/bold cyan] - Multi-session Claude Code Manager\n"
         f"[dim]Starting server on http://{host}:{port}[/dim]",
         border_style="cyan"
     ))
@@ -87,7 +87,7 @@ def spawn(count: int, working_dir: str, name: str):
             else:
                 console.print(f"[red]✗[/red] Failed to create session")
         except requests.ConnectionError:
-            console.print("[red]Error:[/red] Server not running. Start with: ultraclaude start")
+            console.print("[red]Error:[/red] Server not running. Start with: autowrkers start")
             return
 
 
@@ -105,7 +105,7 @@ def status():
             console.print("[dim]No active sessions[/dim]")
             return
 
-        table = Table(title="UltraClaude Sessions")
+        table = Table(title="Autowrkers Sessions")
         table.add_column("ID", style="cyan", justify="right")
         table.add_column("Name", style="white")
         table.add_column("Status", justify="center")
@@ -130,7 +130,7 @@ def status():
         console.print(table)
 
     except requests.ConnectionError:
-        console.print("[red]Error:[/red] Server not running. Start with: ultraclaude start")
+        console.print("[red]Error:[/red] Server not running. Start with: autowrkers start")
 
 
 @cli.command()
@@ -207,7 +207,7 @@ def migrate():
     db.migrate_from_json(projects_file, issue_sessions_file)
     
     console.print("[green]✓[/green] Migration complete!")
-    console.print(f"  Database: {DATA_DIR / 'ultraclaude.db'}")
+    console.print(f"  Database: {DATA_DIR / 'autowrkers.db'}")
     console.print("\n[dim]You can now delete the old JSON files if desired:[/dim]")
     if projects_file.exists():
         console.print(f"  rm {projects_file}")

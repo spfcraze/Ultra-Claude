@@ -1,5 +1,5 @@
 """
-Audit logging for UltraClaude security events.
+Audit logging for Autowrkers security events.
 
 Provides structured logging for authentication, sensitive operations,
 and security-relevant events. Logs are written to a dedicated audit log file
@@ -14,10 +14,10 @@ from enum import Enum
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.audit")
+logger = get_logger("autowrkers.audit")
 
 # Audit log file
-DATA_DIR = Path.home() / ".ultraclaude"
+DATA_DIR = Path.home() / ".autowrkers"
 AUDIT_LOG_FILE = DATA_DIR / "audit.log"
 MAX_AUDIT_ENTRIES = 10000
 

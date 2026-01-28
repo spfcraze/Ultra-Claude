@@ -11,7 +11,7 @@ from ..logging_config import get_logger
 from .manager import browser_manager
 from .models import BrowserSessionConfig
 
-logger = get_logger("ultraclaude.browser.verification")
+logger = get_logger("autowrkers.browser.verification")
 
 
 @dataclass

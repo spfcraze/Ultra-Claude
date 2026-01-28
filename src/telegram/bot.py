@@ -1,5 +1,5 @@
 """
-Main Telegram bot for UltraClaude remote control.
+Main Telegram bot for Autowrkers remote control.
 
 Provides a command interface to manage sessions, trigger automation,
 and monitor progress via Telegram. Inline keyboard buttons for mobile UX.
@@ -25,10 +25,10 @@ from .commands import (
     truncate_output,
 )
 
-logger = logging.getLogger("ultraclaude.telegram")
+logger = logging.getLogger("autowrkers.telegram")
 
 # Config persistence path
-CONFIG_DIR = Path.home() / ".ultraclaude"
+CONFIG_DIR = Path.home() / ".autowrkers"
 CONFIG_FILE = CONFIG_DIR / "telegram_bot.json"
 
 # ANSI escape code stripper
@@ -36,7 +36,7 @@ _ANSI_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 
 class TelegramBot:
-    """Telegram bot for remote control of UltraClaude."""
+    """Telegram bot for remote control of Autowrkers."""
 
     def __init__(self):
         self._app = None  # python-telegram-bot Application
@@ -253,6 +253,28 @@ class TelegramBot:
             rows.append([(f"{num}. {short}", f"p:{num}:{session_id}")])
         return self._kb(rows)
 
+    def _yesno_kb(self, session_id: int):
+        """Buttons for a yes/no prompt."""
+        return self._kb([
+            [("Yes", f"yn:y:{session_id}"), ("No", f"yn:n:{session_id}")],
+            [("Output", f"o:{session_id}"), ("Sessions", "sl")],
+        ])
+
+    def _continue_kb(self, session_id: int):
+        """Button for Press Enter / confirm prompts."""
+        return self._kb([
+            [("Continue (Enter)", f"cont:{session_id}")],
+            [("Output", f"o:{session_id}"), ("Sessions", "sl")],
+        ])
+
+    def _input_needed_kb(self, session_id: int):
+        """Buttons when session needs input but type is unknown."""
+        return self._kb([
+            [("Yes", f"yn:y:{session_id}"), ("No", f"yn:n:{session_id}")],
+            [("Continue (Enter)", f"cont:{session_id}")],
+            [("Focus (type reply)", f"f:{session_id}"), ("Output", f"o:{session_id}")],
+        ])
+
     # ─── Callback handler ──────────────────────────────────────────────
 
     async def _handle_callback(self, update, context):
@@ -300,6 +322,20 @@ class TelegramBot:
                 option_num = parts[1]
                 session_id = int(parts[2])
                 await self._cb_permission(query, session_id, option_num)
+            elif data.startswith("yn:"):
+                # Yes/No: yn:y:SESSION_ID or yn:n:SESSION_ID
+                parts = data.split(":")
+                answer = parts[1]  # "y" or "n"
+                session_id = int(parts[2])
+                await self._cb_yesno(query, session_id, answer)
+            elif data.startswith("cont:"):
+                # Continue/Enter: cont:SESSION_ID
+                session_id = int(data[5:])
+                await self._cb_continue(query, session_id)
+            elif data.startswith("inp:"):
+                # Input needed notification - focus session: inp:SESSION_ID
+                session_id = int(data[4:])
+                await self._cb_focus(query, chat_id, session_id)
             else:
                 await query.edit_message_text("Unknown action.")
         except Exception as e:
@@ -475,6 +511,43 @@ class TelegramBot:
         # Now poll for the response
         await self._poll_and_reply(query.message, session_id)
 
+    async def _cb_yesno(self, query, session_id: int, answer: str):
+        """Handle yes/no button press - send y or n to the session."""
+        from ..session_manager import manager
+
+        label = "Yes" if answer == "y" else "No"
+        success = await manager.send_input(session_id, answer + "\r")
+        if not success:
+            await query.edit_message_text(
+                f"Failed to send '{label}' to session #{session_id}.",
+                reply_markup=self._focused_kb(session_id),
+            )
+            return
+
+        await query.edit_message_text(
+            f"Sent '{label}' to session #{session_id}.\nWaiting for response...",
+            parse_mode="HTML",
+        )
+        await self._poll_and_reply(query.message, session_id)
+
+    async def _cb_continue(self, query, session_id: int):
+        """Handle continue/enter button press."""
+        from ..session_manager import manager
+
+        success = await manager.send_input(session_id, "\r")
+        if not success:
+            await query.edit_message_text(
+                f"Failed to send Enter to session #{session_id}.",
+                reply_markup=self._focused_kb(session_id),
+            )
+            return
+
+        await query.edit_message_text(
+            f"Sent Enter to session #{session_id}.\nWaiting for response...",
+            parse_mode="HTML",
+        )
+        await self._poll_and_reply(query.message, session_id)
+
     async def _cb_help(self, query):
         """Handle help button."""
         await query.edit_message_text(format_help_text(), parse_mode="HTML", reply_markup=self._main_menu_kb())
@@ -487,10 +560,10 @@ class TelegramBot:
             await self._reply(update,
                 "Not authorized. Your Telegram user ID is "
                 f"<code>{user_id}</code>.\n\n"
-                "Add this ID to the allowed users list in UltraClaude Settings.")
+                "Add this ID to the allowed users list in Autowrkers Settings.")
             return
         await self._reply(update,
-            f"Welcome to <b>UltraClaude</b>!\n\n"
+            f"Welcome to <b>Autowrkers</b>!\n\n"
             f"You are authorized (ID: <code>{user_id}</code>).",
             reply_markup=self._main_menu_kb())
 
@@ -823,7 +896,7 @@ class TelegramBot:
         if not self._check_auth(user_id):
             await self._reply(update,
                 f"Not authorized. Your ID: <code>{user_id}</code>.\n"
-                "Add it to allowed users in UltraClaude Settings.")
+                "Add it to allowed users in Autowrkers Settings.")
             return
 
         chat_id = update.effective_chat.id
@@ -935,6 +1008,17 @@ class TelegramBot:
                     pass
                 return  # Stop polling - user will tap a button
 
+            # Input needed - detect type and show appropriate buttons
+            if sv == "needs_attention":
+                input_type = self._detect_input_type(terminal)
+                if input_type:
+                    context = self._extract_question_context(terminal)
+                    display = response if response and response != "(thinking...)" else context
+                    if display:
+                        display = display[-3000:]
+                    await self._show_input_buttons(message, session_id, input_type, display)
+                    return  # Stop polling - user will tap a button
+
             # Check stability
             if response and response == last_response:
                 stable_count += 1
@@ -975,6 +1059,16 @@ class TelegramBot:
                 pass
             return
 
+        # Check for input prompts at the end
+        input_type = self._detect_input_type(terminal)
+        if input_type:
+            context = self._extract_question_context(terminal)
+            display = response if response and response != "(thinking...)" else context
+            if display:
+                display = display[-3000:]
+            await self._show_input_buttons(message, session_id, input_type, display)
+            return
+
         chat_id = message.chat_id
         focused_id = self._focused_sessions.get(chat_id)
         kb = self._focused_kb(session_id) if focused_id == session_id else self._session_actions_kb(session_id)
@@ -998,6 +1092,34 @@ class TelegramBot:
                 await message.edit_text(
                     f"Session #{session_id}: No response received.",
                     reply_markup=kb)
+            except Exception:
+                pass
+
+    async def _show_input_buttons(self, message, session_id: int, input_type: str, context: str):
+        """Show appropriate input buttons based on what the terminal is waiting for."""
+        if input_type == 'yesno':
+            kb = self._yesno_kb(session_id)
+            label = "Yes/No required"
+        elif input_type == 'continue':
+            kb = self._continue_kb(session_id)
+            label = "Press Enter to continue"
+        else:  # 'question' or fallback
+            kb = self._input_needed_kb(session_id)
+            label = "Input required"
+
+        parts = [f"<b>Session #{session_id}</b> — {label}"]
+        if context:
+            parts.append(html_mod.escape(context))
+
+        try:
+            await message.edit_text(
+                '\n\n'.join(parts),
+                parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            try:
+                await message.chat.send_message(
+                    '\n\n'.join(parts),
+                    parse_mode="HTML", reply_markup=kb)
             except Exception:
                 pass
 
@@ -1076,6 +1198,68 @@ class TelegramBot:
 
         return ('\n'.join(cleaned), None)
 
+    def _detect_input_type(self, terminal_output: str) -> Optional[str]:
+        """Detect what kind of input the terminal is waiting for.
+
+        Returns: 'yesno', 'continue', 'question', or None if no input needed.
+        """
+        if not terminal_output:
+            return None
+
+        text = _ANSI_RE.sub('', terminal_output)
+        tail = text[-500:]
+
+        # Permission prompts are handled separately by _extract_response
+        if 'Do you want to proceed?' in tail:
+            return None
+
+        # Yes/No prompts
+        if any(p in tail for p in ('(y/n)', '[Y/n]', '[y/N]', '(Y/n)', '(y/N)')):
+            return 'yesno'
+
+        # Continue / Enter prompts
+        if any(p in tail for p in ('Press Enter', 'Enter to confirm', 'press enter',
+                                    'Press ENTER', 'continue?')):
+            return 'continue'
+
+        # General question prompts (Would you like / Do you want to)
+        if any(p in tail for p in ('Would you like', 'Do you want to')):
+            return 'question'
+
+        return None
+
+    def _extract_question_context(self, terminal_output: str) -> str:
+        """Extract the question/prompt text from terminal output for display."""
+        if not terminal_output:
+            return ""
+
+        text = _ANSI_RE.sub('', terminal_output)
+        lines = text.strip().split('\n')
+
+        # Walk backwards from the end to find the question context
+        context_lines = []
+        for line in reversed(lines[-20:]):
+            s = line.strip()
+            if not s:
+                if context_lines:
+                    break
+                continue
+            if s in ('❯', '❯ ') or '? for shortcuts' in s:
+                continue
+            if re.match(r'^[╭╰│╮╯┌┐└┘├┤┬┴┼─═║]+\s*$', s):
+                if context_lines:
+                    break
+                continue
+            if re.match(r'^[─]{10,}$', s):
+                if context_lines:
+                    break
+                continue
+            context_lines.append(s)
+
+        context_lines.reverse()
+        # Limit to last 5 meaningful lines
+        return '\n'.join(context_lines[-5:])
+
     def _parse_permission_prompt(self, lines: list) -> Tuple[str, List[Tuple[str, str]]]:
         """Parse permission prompt. Returns (description_text, [(num, label), ...])."""
         prompt_line = None
@@ -1145,8 +1329,43 @@ class TelegramBot:
                 return
             icons = {"needs_attention": "[!]", "error": "[ERR]", "completed": "[OK]", "stopped": "[X]"}
             icon = icons.get(status_val, "")
-            msg = f"{icon} Session #{session_id} '{session.name}': {status_val}"
-            await self._broadcast_to_all(msg)
+            name = html_mod.escape(session.name)
+
+            if status_val == "needs_attention":
+                # Detect input type and send buttons
+                terminal = manager.get_session_output(session_id)
+                response, options = self._extract_response(terminal or "")
+                if options:
+                    kb = self._permission_kb(session_id, options)
+                    context = ""
+                    if response and response != "(thinking...)":
+                        context = f"\n\n{html_mod.escape(response[-2000:])}"
+                    msg = f"{icon} <b>Session #{session_id}</b> '{name}' needs permission{context}"
+                else:
+                    input_type = self._detect_input_type(terminal or "")
+                    if input_type == 'yesno':
+                        kb = self._yesno_kb(session_id)
+                        context = self._extract_question_context(terminal or "")
+                        ctx_text = f"\n\n{html_mod.escape(context)}" if context else ""
+                        msg = f"{icon} <b>Session #{session_id}</b> '{name}' — Yes/No required{ctx_text}"
+                    elif input_type == 'continue':
+                        kb = self._continue_kb(session_id)
+                        msg = f"{icon} <b>Session #{session_id}</b> '{name}' — waiting for Enter"
+                    elif input_type == 'question':
+                        kb = self._input_needed_kb(session_id)
+                        context = self._extract_question_context(terminal or "")
+                        ctx_text = f"\n\n{html_mod.escape(context)}" if context else ""
+                        msg = f"{icon} <b>Session #{session_id}</b> '{name}' — input required{ctx_text}"
+                    else:
+                        kb = self._kb([
+                            [("Focus", f"f:{session_id}"), ("Output", f"o:{session_id}")],
+                            [("Sessions", "sl")],
+                        ])
+                        msg = f"{icon} <b>Session #{session_id}</b> '{name}' needs attention"
+                await self._broadcast_to_all_with_kb(msg, kb)
+            else:
+                msg = f"{icon} Session #{session_id} '{name}': {status_val}"
+                await self._broadcast_to_all(msg)
         except Exception as e:
             logger.error(f"Error relaying session status: {e}")
 
@@ -1219,6 +1438,23 @@ class TelegramBot:
             if chat_id not in sent:
                 try:
                     await self._app.bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML")
+                    sent.add(chat_id)
+                except Exception as e:
+                    logger.error(f"Failed to broadcast to {chat_id}: {e}")
+
+    async def _broadcast_to_all_with_kb(self, message: str, reply_markup):
+        """Broadcast with inline keyboard buttons to all subscribed + focused chats."""
+        if not self._app or not self._running:
+            return
+        sent = set()
+        # Include subscribed chats and chats with focused sessions
+        all_chat_ids = set(self._chat_subscriptions.keys()) | set(self._focused_sessions.keys())
+        for chat_id in all_chat_ids:
+            if chat_id not in sent:
+                try:
+                    await self._app.bot.send_message(
+                        chat_id=chat_id, text=message,
+                        parse_mode="HTML", reply_markup=reply_markup)
                     sent.add(chat_id)
                 except Exception as e:
                     logger.error(f"Failed to broadcast to {chat_id}: {e}")

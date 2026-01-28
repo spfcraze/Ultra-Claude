@@ -89,6 +89,7 @@ class ProviderType(Enum):
     GEMINI_SDK = "gemini_sdk"
     GEMINI_OPENROUTER = "gemini_openrouter"
     GEMINI_OAUTH = "gemini_oauth"
+    ANTIGRAVITY = "antigravity"
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
@@ -526,7 +527,7 @@ class ProviderKeys:
             return bool(self.openai_api_key)
         elif provider in (ProviderType.OPENROUTER, ProviderType.GEMINI_OPENROUTER):
             return bool(self.openrouter_api_key)
-        elif provider in (ProviderType.OLLAMA, ProviderType.LM_STUDIO, ProviderType.CLAUDE_CODE, ProviderType.CLAUDE_SDK, ProviderType.NONE):
+        elif provider in (ProviderType.OLLAMA, ProviderType.LM_STUDIO, ProviderType.CLAUDE_CODE, ProviderType.CLAUDE_SDK, ProviderType.ANTIGRAVITY, ProviderType.NONE):
             return True
         return False
 
@@ -565,6 +566,14 @@ TOKEN_COSTS: Dict[str, Dict[str, float]] = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "claude-3-5-sonnet": {"input": 0.003, "output": 0.015},
     "claude-3-opus": {"input": 0.015, "output": 0.075},
+    # Antigravity models (free via Cloud Code Assist)
+    "claude-sonnet-4-5": {"input": 0.0, "output": 0.0},
+    "claude-sonnet-4-5-thinking": {"input": 0.0, "output": 0.0},
+    "claude-opus-4-5-thinking": {"input": 0.0, "output": 0.0},
+    "gemini-3-pro": {"input": 0.0, "output": 0.0},
+    "gemini-3-flash": {"input": 0.0, "output": 0.0},
+    "gemini-2.5-pro": {"input": 0.0, "output": 0.0},
+    "gemini-2.5-flash": {"input": 0.0, "output": 0.0},
 }
 
 

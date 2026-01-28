@@ -35,7 +35,7 @@ COMMANDS: List[BotCommand] = [
 
 def format_help_text() -> str:
     """Format the help message listing all commands."""
-    lines = ["<b>UltraClaude Bot Commands</b>\n"]
+    lines = ["<b>Autowrkers Bot Commands</b>\n"]
     for cmd in COMMANDS:
         lines.append(f"/{cmd.command} - {html.escape(cmd.description)}")
     return "\n".join(lines)
@@ -152,7 +152,7 @@ def format_system_status(sessions, projects, automation_status=None) -> str:
     total_sessions = len(sessions)
 
     lines = [
-        "<b>UltraClaude Status</b>\n",
+        "<b>Autowrkers Status</b>\n",
         f"Sessions: {running} running / {total_sessions} total",
         f"Projects: {len(projects)}",
     ]

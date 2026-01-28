@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Screenshot capture script for UltraClaude README
+Screenshot capture script for Autowrkers README
 Uses Playwright to capture screenshots of the dashboard
 """
 
@@ -13,7 +13,7 @@ BASE_URL = "http://localhost:8420"
 
 
 async def take_screenshots():
-    """Capture screenshots of UltraClaude dashboard"""
+    """Capture screenshots of Autowrkers dashboard"""
 
     # Ensure screenshots directory exists
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)

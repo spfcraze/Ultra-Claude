@@ -35,12 +35,26 @@ class OAuthProviderStatus:
 
 
 class OAuthManager:
-    SUPPORTED_PROVIDERS = ["google"]
+    SUPPORTED_PROVIDERS = ["google", "antigravity"]
     
     def __init__(self, storage: OAuthTokenStorage | None = None):
         self._storage = storage or oauth_storage
         self._refresh_callbacks: dict[str, Callable[[OAuthToken], Awaitable[OAuthToken | None]]] = {}
+        self._register_default_callbacks()
     
+    def _register_default_callbacks(self):
+        """Register refresh callbacks for all known providers."""
+        try:
+            from .flows.google import refresh_google_token
+            self._refresh_callbacks["google"] = refresh_google_token
+        except ImportError:
+            pass
+        try:
+            from .flows.antigravity import refresh_antigravity_token
+            self._refresh_callbacks["antigravity"] = refresh_antigravity_token
+        except ImportError:
+            pass
+
     def register_refresh_callback(
         self, 
         provider: str, 

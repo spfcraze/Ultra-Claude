@@ -24,7 +24,7 @@ from .models import (
     ScreenshotRecord,
 )
 
-logger = get_logger("ultraclaude.browser")
+logger = get_logger("autowrkers.browser")
 
 # Screenshots go into web/static/screenshots/ for direct serving
 BASE_DIR = Path(__file__).parent.parent.parent

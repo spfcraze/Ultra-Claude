@@ -146,8 +146,8 @@ Current time: {datetime.now().isoformat()}
 
         # OpenRouter requires additional headers
         if self.config.provider_type == LLMProviderType.OPENROUTER:
-            headers["HTTP-Referer"] = "https://ultraclaude.local"
-            headers["X-Title"] = "UltraClaude"
+            headers["HTTP-Referer"] = "https://autowrkers.local"
+            headers["X-Title"] = "Autowrkers"
 
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
@@ -475,7 +475,7 @@ async def test_llm_connection(config: LLMProviderConfig) -> Dict[str, Any]:
                     headers["Authorization"] = f"Bearer {config.api_key}"
 
                 if config.provider_type == LLMProviderType.OPENROUTER:
-                    headers["HTTP-Referer"] = "https://ultraclaude.local"
+                    headers["HTTP-Referer"] = "https://autowrkers.local"
 
                 # Try to list models
                 response = await client.get(f"{api_url}/models", headers=headers)

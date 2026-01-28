@@ -14,7 +14,7 @@ from typing import AsyncIterator
 from .base import WorkflowLLMProvider, GenerationResult, ModelInfo, ProviderStatus
 from ..models import ProviderConfig
 
-logger = logging.getLogger("ultraclaude.workflow")
+logger = logging.getLogger("autowrkers.workflow")
 
 CLAUDE_CODE_MODELS: dict[str, dict] = {
     "claude-sonnet-4-20250514": {"context": 200000, "input": 0.003, "output": 0.015},

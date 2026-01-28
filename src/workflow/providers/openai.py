@@ -236,8 +236,8 @@ class OpenRouterProvider(WorkflowLLMProvider):
                 base_url=self.OPENROUTER_URL,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
-                    "HTTP-Referer": "https://ultraclaude.local",
-                    "X-Title": "UltraClaude Workflow",
+                    "HTTP-Referer": "https://autowrkers.local",
+                    "X-Title": "Autowrkers Workflow",
                 },
                 timeout=120.0,
             )

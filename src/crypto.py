@@ -1,5 +1,5 @@
 """
-Cryptography utilities for UltraClaude
+Cryptography utilities for Autowrkers
 
 Provides encryption/decryption for sensitive data like API keys and tokens.
 Uses Fernet symmetric encryption with a key derived from environment or generated.
@@ -12,7 +12,7 @@ from typing import Optional
 from cryptography.fernet import Fernet, InvalidToken
 
 # Key storage location
-DATA_DIR = Path.home() / ".ultraclaude"
+DATA_DIR = Path.home() / ".autowrkers"
 KEY_FILE = DATA_DIR / ".encryption_key"
 
 
@@ -38,7 +38,7 @@ class CredentialEncryption:
     def _load_or_generate_key(self):
         """Load encryption key from environment, file, or generate new one."""
         # Priority 1: Environment variable
-        env_key = os.environ.get('ULTRACLAUDE_ENCRYPTION_KEY')
+        env_key = os.environ.get('AUTOWRKERS_ENCRYPTION_KEY')
         if env_key:
             try:
                 # Try to use it as-is (base64 encoded)

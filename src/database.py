@@ -1,5 +1,5 @@
 """
-SQLite database backend for UltraClaude
+SQLite database backend for Autowrkers
 """
 import sqlite3
 import json
@@ -8,8 +8,8 @@ from typing import Optional, List, Dict, Any, Set
 from contextlib import contextmanager
 from datetime import datetime
 
-DATA_DIR = Path.home() / ".ultraclaude"
-DB_FILE = DATA_DIR / "ultraclaude.db"
+DATA_DIR = Path.home() / ".autowrkers"
+DB_FILE = DATA_DIR / "autowrkers.db"
 
 # Field whitelists for SQL injection prevention
 ALLOWED_PROJECT_FIELDS: Set[str] = {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UltraClaude - Workflow Pipeline</title>
+    <title>Autowrkers - Workflow Pipeline</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/workflow.css">
@@ -16,7 +16,7 @@
                 <div class="logo">
                     <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 8px;">
                         <span class="logo-icon">⚡</span>
-                        <span class="logo-text">UltraClaude</span>
+                        <span class="logo-text">Autowrkers</span>
                     </a>
                 </div>
                 <nav class="nav-tabs">
@@ -192,21 +192,23 @@
     <!-- Template Form (shown inside template-editor-main) -->
     <template id="template-form-template">
         <div class="template-form">
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="template-name">Template Name</label>
-                    <input type="text" id="template-name" placeholder="My Workflow Template">
+            <div class="template-form-top">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="template-name">Template Name</label>
+                        <input type="text" id="template-name" placeholder="My Workflow Template">
+                    </div>
+                    <div class="form-group">
+                        <label for="template-iterations">Max Iterations</label>
+                        <input type="number" id="template-iterations" value="3" min="1" max="10">
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="template-iterations">Max Iterations</label>
-                    <input type="number" id="template-iterations" value="3" min="1" max="10">
+                    <label for="template-description">Description</label>
+                    <input type="text" id="template-description" placeholder="Describe what this template does...">
                 </div>
             </div>
-            <div class="form-group">
-                <label for="template-description">Description</label>
-                <input type="text" id="template-description" placeholder="Describe what this template does...">
-            </div>
-            
+
             <div class="phases-section">
                 <div class="phases-header">
                     <h4>Phases</h4>
@@ -214,7 +216,7 @@
                 </div>
                 <div class="phases-list" id="phases-list"></div>
             </div>
-            
+
             <div class="template-form-actions">
                 <button class="btn btn-danger" id="delete-template-btn" onclick="workflowApp.deleteCurrentTemplate()" style="display:none;">Delete Template</button>
                 <div class="spacer"></div>
@@ -227,12 +229,17 @@
     <!-- Phase Card Template -->
     <template id="phase-card-template">
         <div class="phase-edit-card" data-phase-index="">
-            <div class="phase-edit-header">
+            <div class="phase-edit-header" onclick="workflowApp.togglePhaseCard(this)">
                 <span class="phase-order-badge">#1</span>
-                <input type="text" class="phase-name-input" placeholder="Phase Name" value="">
-                <button class="btn btn-small btn-icon" onclick="workflowApp.movePhaseUp(this)" title="Move Up">↑</button>
-                <button class="btn btn-small btn-icon" onclick="workflowApp.movePhaseDown(this)" title="Move Down">↓</button>
-                <button class="btn btn-small btn-icon btn-danger" onclick="workflowApp.removePhase(this)" title="Remove">×</button>
+                <input type="text" class="phase-name-input" placeholder="Phase Name" value="" onclick="event.stopPropagation()">
+                <span class="phase-summary-model"></span>
+                <span class="phase-expand-icon">▼</span>
+                <button class="btn btn-small btn-icon" onclick="event.stopPropagation(); workflowApp.movePhaseUp(this)" title="Move Up">↑</button>
+                <button class="btn btn-small btn-icon" onclick="event.stopPropagation(); workflowApp.movePhaseDown(this)" title="Move Down">↓</button>
+                <button class="btn btn-small btn-icon btn-danger" onclick="event.stopPropagation(); workflowApp.removePhase(this)" title="Remove">×</button>
+            </div>
+            <div class="phase-summary" onclick="workflowApp.togglePhaseCard(this.closest('.phase-edit-card').querySelector('.phase-edit-header'))">
+                <span class="phase-summary-prompt"></span>
             </div>
             <div class="phase-edit-body">
                 <div class="form-row">
@@ -288,7 +295,7 @@
                 </div>
                 <div class="form-group">
                     <label>Prompt Template</label>
-                    <textarea class="phase-prompt" rows="4" placeholder="Enter the prompt template for this phase...&#10;Use {task}, {context}, {previous_output} as variables."></textarea>
+                    <textarea class="phase-prompt" rows="6" placeholder="Enter the prompt template for this phase...&#10;Use {task}, {context}, {previous_output} as variables."></textarea>
                 </div>
             </div>
         </div>
@@ -315,12 +322,13 @@
                         <!-- Step 1: Client Config -->
                         <div class="oauth-step" id="oauth-google-step-config">
                             <div class="oauth-step-header">
-                                <span class="oauth-step-number">1</span>
+                                <span class="oauth-step-number" id="oauth-google-step1-num">1</span>
                                 <span class="oauth-step-title">Upload OAuth Client Config</span>
+                                <span class="oauth-step-check" id="oauth-google-step1-check" style="display:none">✓</span>
                             </div>
                             <div class="oauth-step-content">
                                 <p class="oauth-step-description">
-                                    Download your OAuth client credentials from 
+                                    Download your OAuth client credentials from
                                     <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a>
                                     and upload the JSON file here.
                                 </p>
@@ -339,17 +347,21 @@
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Step 2: Connect Account -->
                         <div class="oauth-step" id="oauth-google-step-connect">
                             <div class="oauth-step-header">
-                                <span class="oauth-step-number">2</span>
+                                <span class="oauth-step-number" id="oauth-google-step2-num">2</span>
                                 <span class="oauth-step-title">Connect Your Google Account</span>
+                                <span class="oauth-step-check" id="oauth-google-step2-check" style="display:none">✓</span>
                             </div>
                             <div class="oauth-step-content">
                                 <p class="oauth-step-description">
                                     Sign in with your Google account to authorize access to Gemini API.
                                 </p>
+                                <div class="oauth-step-hint" id="oauth-google-connect-hint">
+                                    Complete Step 1 first — upload your client_secret.json to enable this step.
+                                </div>
                                 <div class="oauth-account-info" id="oauth-google-account" style="display:none">
                                     <span class="oauth-account-icon">✓</span>
                                     <span class="oauth-account-email" id="oauth-google-email">user@gmail.com</span>
@@ -366,8 +378,46 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Antigravity OAuth Section -->
+                <div class="oauth-provider-section" id="oauth-antigravity-section">
+                    <div class="oauth-provider-header">
+                        <span class="oauth-provider-icon">🚀</span>
+                        <span class="oauth-provider-name">Antigravity (Free Claude + Gemini)</span>
+                        <span class="oauth-status-badge" id="oauth-antigravity-status">Not Configured</span>
+                    </div>
+
+                    <div class="oauth-provider-body">
+                        <div class="oauth-step" id="oauth-antigravity-step-connect">
+                            <div class="oauth-step-header">
+                                <span class="oauth-step-number">1</span>
+                                <span class="oauth-step-title">Connect Your Google Account</span>
+                                <span class="oauth-step-check" id="oauth-antigravity-step-check" style="display:none">✓</span>
+                            </div>
+                            <div class="oauth-step-content">
+                                <p class="oauth-step-description">
+                                    Authenticate with Google to access Claude Sonnet 4.5, Claude Opus 4.5,
+                                    Gemini 3, and Gemini 2.5 models via Cloud Code Assist.
+                                    No API key or billing required.
+                                </p>
+                                <div class="oauth-account-info" id="oauth-antigravity-account" style="display:none">
+                                    <span class="oauth-account-icon">✓</span>
+                                    <span class="oauth-account-email" id="oauth-antigravity-email">user@gmail.com</span>
+                                </div>
+                                <div class="oauth-step-actions">
+                                    <button class="btn btn-small btn-primary" id="oauth-antigravity-connect-btn" onclick="workflowApp.startOAuthFlow('antigravity')">
+                                        🔗 Connect with Google
+                                    </button>
+                                    <button class="btn btn-small btn-danger" id="oauth-antigravity-disconnect-btn" onclick="workflowApp.revokeOAuth('antigravity')" style="display:none">
+                                        Disconnect
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
+
             <div class="modal-actions">
                 <button class="btn" onclick="workflowApp.closeOAuthModal()">Close</button>
             </div>

@@ -1,5 +1,5 @@
 """
-Task scheduler for UltraClaude automation.
+Task scheduler for Autowrkers automation.
 
 Provides cron-like scheduling for:
 - Automatic issue syncing
@@ -19,7 +19,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.scheduler")
+logger = get_logger("autowrkers.scheduler")
 
 
 class TaskType(Enum):
@@ -73,7 +73,7 @@ class ScheduledTask:
 
 
 class TaskScheduler:
-    """Manages scheduled tasks for UltraClaude automation."""
+    """Manages scheduled tasks for Autowrkers automation."""
 
     def __init__(self):
         self._scheduler = AsyncIOScheduler(

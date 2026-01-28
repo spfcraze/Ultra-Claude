@@ -1,5 +1,5 @@
 """
-Multi-channel notification system for UltraClaude.
+Multi-channel notification system for Autowrkers.
 
 Supports:
 - Discord webhooks
@@ -18,7 +18,7 @@ import httpx
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.notifications")
+logger = get_logger("autowrkers.notifications")
 
 
 class NotificationChannel(Enum):
@@ -153,7 +153,7 @@ class ChannelConfig:
 
 
 class NotificationManager:
-    """Manages multi-channel notifications for UltraClaude."""
+    """Manages multi-channel notifications for Autowrkers."""
 
     def __init__(self):
         self._global_config = NotificationConfig()
@@ -223,7 +223,7 @@ class NotificationManager:
         test_notification = Notification(
             event=NotificationEvent.SYSTEM_HEALTH_WARNING,
             title="Test Notification",
-            message="This is a test notification from UltraClaude.",
+            message="This is a test notification from Autowrkers.",
             severity="info",
         )
 
@@ -366,7 +366,7 @@ class NotificationManager:
                 "color": colors.get(notification.severity, colors["info"]),
                 "timestamp": notification.created_at,
                 "footer": {
-                    "text": "UltraClaude",
+                    "text": "Autowrkers",
                 },
                 "fields": [],
             }
@@ -431,7 +431,7 @@ class NotificationManager:
                 "color": colors.get(notification.severity, colors["info"]),
                 "title": notification.title,
                 "text": notification.message,
-                "footer": "UltraClaude",
+                "footer": "Autowrkers",
                 "ts": int(datetime.fromisoformat(notification.created_at.replace("Z", "+00:00")).timestamp()),
                 "fields": [],
             }
@@ -508,7 +508,7 @@ class NotificationManager:
             if notification.url:
                 lines.append(f"\n<a href=\"{notification.url}\">View on GitHub</a>")
 
-            lines.append(f"\n<i>UltraClaude</i>")
+            lines.append(f"\n<i>Autowrkers</i>")
 
             text = "\n".join(lines)
 
@@ -554,7 +554,7 @@ class NotificationManager:
 
             # Build email
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"[UltraClaude] {notification.title}"
+            msg["Subject"] = f"[Autowrkers] {notification.title}"
             msg["From"] = config.email_from or config.email_smtp_user
             msg["To"] = ", ".join(config.email_to)
 
@@ -574,7 +574,7 @@ class NotificationManager:
             if notification.url:
                 text_content += f"\nLink: {notification.url}\n"
 
-            text_content += "\n--\nSent by UltraClaude"
+            text_content += "\n--\nSent by Autowrkers"
 
             # HTML version
             severity_colors = {
@@ -612,7 +612,7 @@ class NotificationManager:
                 {f'<p><a href="{notification.url}">View on GitHub</a></p>' if notification.url else ''}
             </div>
             <div class="footer">
-                Sent by UltraClaude
+                Sent by Autowrkers
             </div>
         </div>
     </div>
@@ -797,7 +797,7 @@ class NotificationManager:
         await self.notify(Notification(
             event=NotificationEvent.SYSTEM_UPDATE_AVAILABLE,
             title="Update Available",
-            message=f"UltraClaude {latest_version} is available (you have {current_version})",
+            message=f"Autowrkers {latest_version} is available (you have {current_version})",
             url="https://github.com/spfcraze/Ultra-Claude/releases",
             severity="info",
         ))

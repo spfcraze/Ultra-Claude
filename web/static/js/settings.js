@@ -95,7 +95,7 @@ function updateDaemonUI(status) {
 }
 
 async function installDaemon() {
-    if (!confirm('Install UltraClaude as a system service?')) return;
+    if (!confirm('Install Autowrkers as a system service?')) return;
 
     try {
         const response = await fetch('/api/daemon/install', { method: 'POST' });
@@ -113,7 +113,7 @@ async function installDaemon() {
 }
 
 async function uninstallDaemon() {
-    if (!confirm('Uninstall the UltraClaude service? This will stop 24/7 operation.')) return;
+    if (!confirm('Uninstall the Autowrkers service? This will stop 24/7 operation.')) return;
 
     try {
         const response = await fetch('/api/daemon/uninstall', { method: 'POST' });
@@ -145,7 +145,7 @@ async function startDaemon() {
 }
 
 async function stopDaemon() {
-    if (!confirm('Stop the UltraClaude service?')) return;
+    if (!confirm('Stop the Autowrkers service?')) return;
 
     try {
         const response = await fetch('/api/daemon/stop', { method: 'POST' });
@@ -797,14 +797,14 @@ async function checkForUpdates() {
 }
 
 async function installUpdate() {
-    if (!confirm('Install the update? UltraClaude will restart.')) return;
+    if (!confirm('Install the update? Autowrkers will restart.')) return;
 
     try {
         const response = await fetch('/api/update/install', { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
-            alert('Update installed! Please restart UltraClaude.');
+            alert('Update installed! Please restart Autowrkers.');
         } else {
             alert('Error: ' + (data.error || 'Failed to install update'));
         }

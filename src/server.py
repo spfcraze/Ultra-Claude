@@ -31,15 +31,15 @@ from .audit import audit_logger, AuditEventType, get_client_ip
 from .telegram.bot import telegram_bot
 
 setup_logging()
-logger = get_logger("ultraclaude.server")
+logger = get_logger("autowrkers.server")
 
-app = FastAPI(title="UltraClaude", version="0.3.0")
+app = FastAPI(title="Autowrkers", version="0.3.0")
 
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
-# CORS - restrict allowed origins (configurable via ULTRACLAUDE_CORS_ORIGINS env var)
+# CORS - restrict allowed origins (configurable via AUTOWRKERS_CORS_ORIGINS env var)
 from fastapi.middleware.cors import CORSMiddleware
 
 cors_origins = get_cors_origins()
@@ -52,8 +52,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# HTTPS redirect - enable via ULTRACLAUDE_HTTPS_REDIRECT=true
-if os.environ.get("ULTRACLAUDE_HTTPS_REDIRECT", "").lower() in ("true", "1", "yes"):
+# HTTPS redirect - enable via AUTOWRKERS_HTTPS_REDIRECT=true
+if os.environ.get("AUTOWRKERS_HTTPS_REDIRECT", "").lower() in ("true", "1", "yes"):
     app.add_middleware(HTTPSRedirectMiddleware)
 
 # Paths
@@ -1524,7 +1524,7 @@ async def get_issue_session(session_id: int):
 
 @app.post("/api/issue-sessions/{session_id}/start")
 async def start_issue_session(session_id: int):
-    """Start working on an issue (creates UltraClaude session)"""
+    """Start working on an issue (creates Autowrkers session)"""
     from .automation import automation_controller
     issue_session = issue_session_manager.get(session_id)
     if not issue_session:
@@ -1553,7 +1553,7 @@ async def retry_issue_session(session_id: int):
     # Reset status - clear linked session manually to avoid parameter conflict
     issue_session = issue_session_manager.get(session_id)
     if issue_session:
-        issue_session.session_id = None  # Clear any linked UltraClaude session
+        issue_session.session_id = None  # Clear any linked Autowrkers session
 
     issue_session_manager.update(
         session_id,
@@ -1794,7 +1794,7 @@ async def list_openrouter_models(api_key: str = None):
                 "https://openrouter.ai/api/v1/models",
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://ultraclaude.local",
+                    "HTTP-Referer": "https://autowrkers.local",
                 }
             )
             response.raise_for_status()
@@ -1858,7 +1858,7 @@ async def get_daemon_status():
 
 @app.post("/api/daemon/install")
 async def install_daemon():
-    """Install UltraClaude as a system daemon"""
+    """Install Autowrkers as a system daemon"""
     result = await daemon_manager.install()
     return result
 
@@ -2437,7 +2437,7 @@ def run_server(
     ssl_keyfile: Optional[str] = None,
 ):
     """
-    Run the UltraClaude server.
+    Run the Autowrkers server.
 
     Args:
         host: Bind address. Default is 127.0.0.1 (localhost only) for security.
@@ -2445,9 +2445,9 @@ def run_server(
               is enabled and a firewall is configured.
         port: Port to listen on (default: 8420)
         ssl_certfile: Path to SSL certificate file (PEM format).
-                      Can also be set via ULTRACLAUDE_SSL_CERTFILE env var.
+                      Can also be set via AUTOWRKERS_SSL_CERTFILE env var.
         ssl_keyfile: Path to SSL private key file (PEM format).
-                     Can also be set via ULTRACLAUDE_SSL_KEYFILE env var.
+                     Can also be set via AUTOWRKERS_SSL_KEYFILE env var.
     """
     import uvicorn
 
@@ -2455,13 +2455,13 @@ def run_server(
     if host == "0.0.0.0" and not is_auth_enabled():
         logger.warning(
             "WARNING: Server is binding to 0.0.0.0 but authentication is DISABLED. "
-            "This exposes UltraClaude to the network without protection. "
-            "Enable auth with ULTRACLAUDE_AUTH_ENABLED=true or restrict to localhost."
+            "This exposes Autowrkers to the network without protection. "
+            "Enable auth with AUTOWRKERS_AUTH_ENABLED=true or restrict to localhost."
         )
 
     # SSL configuration from args or env vars
-    certfile = ssl_certfile or os.environ.get("ULTRACLAUDE_SSL_CERTFILE")
-    keyfile = ssl_keyfile or os.environ.get("ULTRACLAUDE_SSL_KEYFILE")
+    certfile = ssl_certfile or os.environ.get("AUTOWRKERS_SSL_CERTFILE")
+    keyfile = ssl_keyfile or os.environ.get("AUTOWRKERS_SSL_KEYFILE")
 
     kwargs = {"host": host, "port": port}
 

@@ -1157,6 +1157,12 @@ const workflowApp = {
             } else {
                 this.providers.gemini_oauth = { available: false, oauth: true, status: this.oauthStatus.google?.status || 'not_configured' };
             }
+
+            if (this.oauthStatus.antigravity?.status === 'connected') {
+                this.providers.antigravity = { available: true, oauth: true };
+            } else {
+                this.providers.antigravity = { available: false, oauth: true, status: this.oauthStatus.antigravity?.status || 'not_configured' };
+            }
         } catch (error) {
             console.error('Failed to load providers:', error);
         }
@@ -1180,19 +1186,93 @@ const workflowApp = {
 
     renderTemplateList() {
         const container = document.getElementById('template-list');
-        
+
         if (this.templates.length === 0) {
             container.innerHTML = '<div class="template-list-empty">No templates yet</div>';
             return;
         }
-        
-        container.innerHTML = this.templates.map(t => `
-            <div class="template-list-item ${this.editingTemplate?.id === t.id ? 'active' : ''}" 
+
+        const providerShort = {
+            claude_code: 'Claude',
+            antigravity: 'AG',
+            gemini_sdk: 'Gemini',
+            gemini_oauth: 'Gemini',
+            openai: 'OpenAI',
+            openrouter: 'OR',
+            ollama: 'Ollama',
+            lm_studio: 'LMS'
+        };
+
+        container.innerHTML = this.templates.map(t => {
+            const phases = t.phases || [];
+            const phaseInfo = phases.map(p => {
+                const pType = p.provider_config?.provider_type || p.provider_type || '';
+                const model = p.provider_config?.model_name || p.model_name || '';
+                const short = providerShort[pType] || pType;
+                const modelShort = model.length > 20 ? model.substring(0, 18) + '..' : model;
+                return `<span class="template-phase-tag" title="${p.name || ''}: ${pType} / ${model}">${short}${modelShort ? ' · ' + modelShort : ''}</span>`;
+            }).join('');
+
+            return `
+            <div class="template-list-item ${this.editingTemplate?.id === t.id ? 'active' : ''}"
                  onclick="workflowApp.editTemplate('${t.id}')">
-                <div class="template-list-name">${t.name}</div>
-                <div class="template-list-meta">${t.phases?.length || 0} phases ${t.is_default ? '★' : ''}</div>
+                <div class="template-list-top">
+                    <div class="template-list-name">${this.escapeHtml(t.name)}</div>
+                    <button class="btn btn-small btn-icon template-copy-btn" onclick="event.stopPropagation(); workflowApp.duplicateTemplate('${t.id}')" title="Duplicate template">⧉</button>
+                </div>
+                <div class="template-list-meta">${phases.length} phase${phases.length !== 1 ? 's' : ''} ${t.is_default ? '★' : ''}</div>
+                ${phaseInfo ? `<div class="template-list-phases">${phaseInfo}</div>` : ''}
             </div>
-        `).join('');
+        `}).join('');
+    },
+
+    async duplicateTemplate(templateId) {
+        const template = this.templates.find(t => t.id === templateId);
+        if (!template) return;
+
+        try {
+            const phases = (template.phases || []).map((p, i) => ({
+                name: p.name || `Phase ${i + 1}`,
+                role: p.role || 'analyzer',
+                provider_config: {
+                    provider_type: p.provider_config?.provider_type || p.provider_type || '',
+                    model_name: p.provider_config?.model_name || p.model_name || '',
+                    temperature: p.provider_config?.temperature || 0.1
+                },
+                prompt_template: p.prompt_template || '',
+                output_artifact_type: p.output_artifact_type || 'custom',
+                can_iterate: p.can_iterate || false,
+                order: i
+            }));
+
+            const response = await fetch('/api/workflow/templates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: template.name + ' (Copy)',
+                    description: template.description || '',
+                    max_iterations: template.max_iterations || 3,
+                    phases: phases
+                })
+            });
+
+            const data = await response.json();
+            if (data.success || data.template_id) {
+                await this.loadTemplates();
+                this.renderTemplateList();
+                this.populateTemplateSelect();
+                const newId = data.template_id || data.template?.id;
+                if (newId) {
+                    this.editTemplate(newId);
+                }
+                this.showToast('Template duplicated', 'success');
+            } else {
+                this.showToast('Failed to duplicate: ' + (data.detail || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            console.error('Failed to duplicate template:', error);
+            this.showToast('Failed to duplicate template', 'error');
+        }
     },
 
     newTemplate() {
@@ -1246,20 +1326,31 @@ const workflowApp = {
 
     renderPhasesList() {
         const container = document.getElementById('phases-list');
-        
+
         if (this.editingPhases.length === 0) {
             container.innerHTML = '<div class="phases-empty">No phases yet. Add a phase to get started.</div>';
             return;
         }
-        
+
         container.innerHTML = '';
-        
+
+        const providerShortNames = {
+            claude_code: 'Claude Code',
+            antigravity: 'Antigravity',
+            gemini_sdk: 'Gemini',
+            gemini_oauth: 'Gemini OAuth',
+            openai: 'OpenAI',
+            openrouter: 'OpenRouter',
+            ollama: 'Ollama',
+            lm_studio: 'LM Studio'
+        };
+
         this.editingPhases.forEach((phase, index) => {
             const phaseHTML = document.getElementById('phase-card-template').innerHTML;
             const div = document.createElement('div');
             div.innerHTML = phaseHTML;
             const card = div.firstElementChild;
-            
+
             card.dataset.phaseIndex = index;
             card.querySelector('.phase-order-badge').textContent = `#${index + 1}`;
             card.querySelector('.phase-name-input').value = phase.name || '';
@@ -1268,15 +1359,44 @@ const workflowApp = {
             card.querySelector('.phase-output-type').value = phase.output_type || 'custom';
             card.querySelector('.phase-can-iterate').checked = phase.can_iterate || false;
             card.querySelector('.phase-prompt').value = phase.prompt_template || '';
-            
+
+            // Populate summary info visible when collapsed
+            const providerLabel = providerShortNames[phase.provider_type] || phase.provider_type || 'No provider';
+            const modelLabel = phase.model_name || '';
+            const summaryModel = card.querySelector('.phase-summary-model');
+            summaryModel.textContent = modelLabel ? `${providerLabel} · ${modelLabel}` : providerLabel;
+
+            const promptPreview = card.querySelector('.phase-summary-prompt');
+            const promptText = (phase.prompt_template || '').trim();
+            if (promptText) {
+                const firstLine = promptText.split('\n').find(l => l.trim()) || '';
+                promptPreview.textContent = firstLine.length > 120 ? firstLine.substring(0, 118) + '...' : firstLine;
+            } else {
+                promptPreview.textContent = 'No prompt configured';
+                promptPreview.classList.add('empty');
+            }
+
+            // Existing templates start collapsed, new phases start expanded
+            if (this.editingTemplate?.id && phase.provider_type) {
+                card.classList.add('collapsed');
+            }
+
             this.populateProviderSelect(card.querySelector('.phase-provider'), phase.provider_type);
-            
+
             if (phase.provider_type) {
                 this.populateModelSelect(card.querySelector('.phase-model'), phase.provider_type, phase.model_name);
             }
-            
+
             container.appendChild(card);
         });
+    },
+
+    togglePhaseCard(headerEl) {
+        const card = headerEl.closest('.phase-edit-card');
+        if (!card) return;
+        // Save current form data before toggling
+        this.collectPhaseData();
+        card.classList.toggle('collapsed');
     },
 
     populateProviderSelect(select, selectedValue) {
@@ -1284,6 +1404,7 @@ const workflowApp = {
         
         const providerLabels = {
             claude_code: 'Claude Code (CLI)',
+            antigravity: 'Antigravity (Free Claude + Gemini)',
             gemini_sdk: 'Gemini (API Key)',
             gemini_oauth: 'Gemini (OAuth)',
             openai: 'OpenAI',
@@ -1291,8 +1412,8 @@ const workflowApp = {
             ollama: 'Ollama (Local)',
             lm_studio: 'LM Studio (Local)'
         };
-        
-        const providerOrder = ['claude_code', 'gemini_sdk', 'gemini_oauth', 'openai', 'openrouter', 'ollama', 'lm_studio'];
+
+        const providerOrder = ['claude_code', 'antigravity', 'gemini_sdk', 'gemini_oauth', 'openai', 'openrouter', 'ollama', 'lm_studio'];
         
         providerOrder.forEach(provider => {
             const info = this.providers[provider];
@@ -1360,6 +1481,9 @@ const workflowApp = {
     },
 
     addPhase() {
+        if (this.editingPhases.length > 0) {
+            this.collectPhaseData();
+        }
         this.editingPhases.push({
             name: `Phase ${this.editingPhases.length + 1}`,
             provider_type: '',
@@ -1376,6 +1500,7 @@ const workflowApp = {
     removePhase(button) {
         const card = button.closest('.phase-edit-card');
         const index = parseInt(card.dataset.phaseIndex);
+        this.collectPhaseData();
         this.editingPhases.splice(index, 1);
         this.renderPhasesList();
     },
@@ -1566,10 +1691,18 @@ const workflowApp = {
         const disconnectBtn = document.getElementById('oauth-google-disconnect-btn');
         const accountInfo = document.getElementById('oauth-google-account');
         const emailSpan = document.getElementById('oauth-google-email');
+        const connectHint = document.getElementById('oauth-google-connect-hint');
+        const step1Check = document.getElementById('oauth-google-step1-check');
+        const step1Num = document.getElementById('oauth-google-step1-num');
+        const step2Check = document.getElementById('oauth-google-step2-check');
+        const step2Num = document.getElementById('oauth-google-step2-num');
+        const stepConfig = document.getElementById('oauth-google-step-config');
+        const stepConnect = document.getElementById('oauth-google-step-connect');
 
         const hasConfig = googleStatus.has_client_config;
         const status = googleStatus.status || 'not_configured';
 
+        // Header badge
         if (status === 'connected') {
             statusBadge.textContent = 'Connected';
             statusBadge.className = 'oauth-status-badge status-connected';
@@ -1584,27 +1717,100 @@ const workflowApp = {
             statusBadge.className = 'oauth-status-badge status-not-configured';
         }
 
+        // Step 1: Config upload
         if (hasConfig) {
             configStatus.innerHTML = '<span class="oauth-config-icon">●</span><span>Client config uploaded</span>';
             configStatus.classList.add('configured');
             configDeleteBtn.style.display = 'inline-block';
             connectBtn.disabled = false;
+            stepConfig.classList.add('oauth-step-done');
+            step1Check.style.display = 'inline';
+            step1Num.style.display = 'none';
         } else {
             configStatus.innerHTML = '<span class="oauth-config-icon">○</span><span>No client config uploaded</span>';
             configStatus.classList.remove('configured');
             configDeleteBtn.style.display = 'none';
             connectBtn.disabled = true;
+            stepConfig.classList.remove('oauth-step-done');
+            step1Check.style.display = 'none';
+            step1Num.style.display = 'flex';
         }
 
+        // Step 2: Connect
         if (status === 'connected') {
             connectBtn.style.display = 'none';
             disconnectBtn.style.display = 'inline-block';
             accountInfo.style.display = 'flex';
             emailSpan.textContent = googleStatus.email || 'Connected';
+            connectHint.style.display = 'none';
+            stepConnect.classList.add('oauth-step-done');
+            stepConnect.classList.remove('oauth-step-locked');
+            step2Check.style.display = 'inline';
+            step2Num.style.display = 'none';
         } else {
             connectBtn.style.display = 'inline-block';
             disconnectBtn.style.display = 'none';
             accountInfo.style.display = 'none';
+            stepConnect.classList.remove('oauth-step-done');
+            step2Check.style.display = 'none';
+            step2Num.style.display = 'flex';
+
+            // Show/hide hint based on whether Step 1 is done
+            if (hasConfig) {
+                connectHint.style.display = 'none';
+                stepConnect.classList.remove('oauth-step-locked');
+            } else {
+                connectHint.style.display = 'block';
+                stepConnect.classList.add('oauth-step-locked');
+            }
+        }
+
+        // Antigravity OAuth UI
+        this.updateAntigravityOAuthUI();
+    },
+
+    updateAntigravityOAuthUI() {
+        const agStatus = this.oauthStatus.antigravity || {};
+        const statusBadge = document.getElementById('oauth-antigravity-status');
+        const connectBtn = document.getElementById('oauth-antigravity-connect-btn');
+        const disconnectBtn = document.getElementById('oauth-antigravity-disconnect-btn');
+        const accountInfo = document.getElementById('oauth-antigravity-account');
+        const emailSpan = document.getElementById('oauth-antigravity-email');
+        const stepCheck = document.getElementById('oauth-antigravity-step-check');
+        const stepConnect = document.getElementById('oauth-antigravity-step-connect');
+
+        if (!statusBadge) return;
+
+        const status = agStatus.status || 'not_configured';
+
+        if (status === 'connected') {
+            statusBadge.textContent = 'Connected';
+            statusBadge.className = 'oauth-status-badge status-connected';
+            connectBtn.style.display = 'none';
+            disconnectBtn.style.display = 'inline-block';
+            accountInfo.style.display = 'flex';
+            emailSpan.textContent = agStatus.account_email || 'Connected';
+            stepConnect.classList.add('oauth-step-done');
+            stepCheck.style.display = 'inline';
+        } else if (status === 'expired') {
+            statusBadge.textContent = 'Expired';
+            statusBadge.className = 'oauth-status-badge status-expired';
+            connectBtn.style.display = 'inline-block';
+            connectBtn.textContent = '🔗 Reconnect';
+            disconnectBtn.style.display = 'inline-block';
+            accountInfo.style.display = 'flex';
+            emailSpan.textContent = agStatus.account_email || 'Expired';
+            stepConnect.classList.remove('oauth-step-done');
+            stepCheck.style.display = 'none';
+        } else {
+            statusBadge.textContent = 'Not Connected';
+            statusBadge.className = 'oauth-status-badge status-not-configured';
+            connectBtn.style.display = 'inline-block';
+            connectBtn.textContent = '🔗 Connect with Google';
+            disconnectBtn.style.display = 'none';
+            accountInfo.style.display = 'none';
+            stepConnect.classList.remove('oauth-step-done');
+            stepCheck.style.display = 'none';
         }
     },
 
@@ -1659,38 +1865,58 @@ const workflowApp = {
         connectBtn.textContent = 'Opening browser...';
         connectBtn.disabled = true;
 
+        // Open a blank window NOW (in click handler context) to avoid popup blocker.
+        // We'll redirect it to the auth URL after the API responds.
+        let authWindow = null;
+        if (provider === 'antigravity') {
+            authWindow = window.open('about:blank', '_blank');
+        }
+
         try {
             const response = await fetch(`/api/workflow/oauth/${provider}/start`, {
                 method: 'POST'
             });
 
             const data = await response.json();
-            
+
             if (data.success) {
+                // Redirect the pre-opened window to the auth URL
+                if (authWindow && data.auth_url) {
+                    authWindow.location.href = data.auth_url;
+                } else if (data.auth_url) {
+                    // Fallback if popup was blocked
+                    window.open(data.auth_url, '_blank');
+                }
+
                 connectBtn.textContent = 'Waiting for authorization...';
-                
+
                 const checkAuth = setInterval(async () => {
                     await this.refreshOAuthStatus();
                     const status = this.oauthStatus[provider]?.status;
                     if (status === 'connected') {
                         clearInterval(checkAuth);
                         await this.loadProviders();
-                        alert('Successfully connected!');
+                        this.updateOAuthUI();
+                        this.showToast('Successfully connected!', 'success');
                     }
                 }, 2000);
 
                 setTimeout(() => {
                     clearInterval(checkAuth);
+                    connectBtn.textContent = originalText;
+                    connectBtn.disabled = false;
                     this.updateOAuthUI();
                 }, 120000);
             } else {
+                if (authWindow) authWindow.close();
                 alert('Failed to start OAuth flow: ' + (data.detail || 'Unknown error'));
                 connectBtn.textContent = originalText;
                 connectBtn.disabled = false;
             }
         } catch (error) {
+            if (authWindow) authWindow.close();
             console.error('Failed to start OAuth flow:', error);
-            alert('Failed to start OAuth flow');
+            alert('Failed to start OAuth flow: ' + error.message);
             connectBtn.textContent = originalText;
             connectBtn.disabled = false;
         }

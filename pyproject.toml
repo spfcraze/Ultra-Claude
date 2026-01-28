@@ -1,5 +1,5 @@
 [project]
-name = "ultraclaude"
+name = "autowrkers"
 version = "0.4.0"
 description = "Multi-session Claude Code manager with GitHub Issues integration and Multi-LLM Workflow Pipeline"
 readme = "README.md"
@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-ultraclaude = "src.cli:main"
+autowrkers = "src.cli:main"
 uc-workflow = "src.workflow.cli:main"
 
 [build-system]

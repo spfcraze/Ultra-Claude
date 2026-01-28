@@ -52,9 +52,9 @@ def setup_logging(
     json_format: bool = None,
     log_file: str = None
 ):
-    level = level or os.environ.get("ULTRACLAUDE_LOG_LEVEL", "INFO")
-    json_format = json_format if json_format is not None else os.environ.get("ULTRACLAUDE_LOG_JSON", "0") == "1"
-    log_file = log_file or os.environ.get("ULTRACLAUDE_LOG_FILE")
+    level = level or os.environ.get("AUTOWRKERS_LOG_LEVEL", "INFO")
+    json_format = json_format if json_format is not None else os.environ.get("AUTOWRKERS_LOG_JSON", "0") == "1"
+    log_file = log_file or os.environ.get("AUTOWRKERS_LOG_FILE")
     
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))

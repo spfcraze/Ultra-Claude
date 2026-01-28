@@ -36,7 +36,7 @@ COMPLETION_PATTERNS = [
 
 
 # Data directory for persistence
-DATA_DIR = Path.home() / ".ultraclaude"
+DATA_DIR = Path.home() / ".autowrkers"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 
 
@@ -94,7 +94,7 @@ class Session:
 
 
 class SessionManager:
-    TMUX_PREFIX = "ultraclaude"
+    TMUX_PREFIX = "autowrkers"
 
     def __init__(self):
         self.sessions: dict[int, Session] = {}

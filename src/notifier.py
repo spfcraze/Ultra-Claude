@@ -42,7 +42,7 @@ class Notifier:
             subprocess.run([
                 "notify-send",
                 "-u", urgency,
-                "-a", "UltraClaude",
+                "-a", "Autowrkers",
                 title,
                 message
             ], check=True, capture_output=True)
@@ -54,7 +54,7 @@ class Notifier:
                 notification.notify(
                     title=title,
                     message=message,
-                    app_name="UltraClaude",
+                    app_name="Autowrkers",
                     timeout=10
                 )
                 return True
@@ -77,7 +77,7 @@ class Notifier:
             notification.notify(
                 title=title,
                 message=message,
-                app_name="UltraClaude",
+                app_name="Autowrkers",
                 timeout=10
             )
             return True
@@ -90,7 +90,7 @@ class Notifier:
             $textNodes.Item(0).AppendChild($template.CreateTextNode("{title}")) | Out-Null
             $textNodes.Item(1).AppendChild($template.CreateTextNode("{message}")) | Out-Null
             $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("UltraClaude").Show($toast)
+            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Autowrkers").Show($toast)
             '''
             try:
                 subprocess.run(["powershell", "-Command", ps_script], check=True, capture_output=True)
@@ -107,7 +107,7 @@ notifier = Notifier()
 def notify_session_needs_attention(session_name: str, session_id: int):
     """Convenience function for session attention notifications"""
     notifier.notify(
-        title=f"UltraClaude - {session_name}",
+        title=f"Autowrkers - {session_name}",
         message=f"Session #{session_id} needs your input",
         urgency="normal"
     )

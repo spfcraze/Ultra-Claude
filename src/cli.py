@@ -11,16 +11,16 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version=__version__, prog_name="ultraclaude")
+@click.version_option(version=__version__, prog_name="autowrkers")
 def main():
-    """UltraClaude - Multi-session Claude Code manager."""
+    """Autowrkers - Multi-session Claude Code manager."""
     pass
 
 
 @main.command()
 def version():
     """Show version information."""
-    console.print(f"[bold cyan]UltraClaude[/bold cyan] v{__version__}")
+    console.print(f"[bold cyan]Autowrkers[/bold cyan] v{__version__}")
     console.print(f"Repository: https://github.com/spfcraze/Ultra-Claude")
 
 
@@ -72,7 +72,7 @@ async def _update(check_only: bool, force: bool):
             console.print(update_info.release_notes[:500])
         
         if check_only:
-            console.print("\nRun [cyan]ultraclaude update[/cyan] to install the update.")
+            console.print("\nRun [cyan]autowrkers update[/cyan] to install the update.")
             return
         
         if not git_status.get("is_git"):
@@ -100,19 +100,19 @@ async def _update(check_only: bool, force: bool):
 @click.option("--host", default="127.0.0.1", help="Host to bind to (use 0.0.0.0 for external access, requires auth)")
 @click.option("--port", default=8420, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-@click.option("--ssl-certfile", default=None, help="Path to SSL certificate (PEM). Also: ULTRACLAUDE_SSL_CERTFILE env var")
-@click.option("--ssl-keyfile", default=None, help="Path to SSL private key (PEM). Also: ULTRACLAUDE_SSL_KEYFILE env var")
+@click.option("--ssl-certfile", default=None, help="Path to SSL certificate (PEM). Also: AUTOWRKERS_SSL_CERTFILE env var")
+@click.option("--ssl-keyfile", default=None, help="Path to SSL private key (PEM). Also: AUTOWRKERS_SSL_KEYFILE env var")
 def serve(host: str, port: int, reload: bool, ssl_certfile: str, ssl_keyfile: str):
-    """Start the UltraClaude server."""
+    """Start the Autowrkers server."""
     import os
     import uvicorn
 
     # Resolve SSL from args or env vars
-    certfile = ssl_certfile or os.environ.get("ULTRACLAUDE_SSL_CERTFILE")
-    keyfile = ssl_keyfile or os.environ.get("ULTRACLAUDE_SSL_KEYFILE")
+    certfile = ssl_certfile or os.environ.get("AUTOWRKERS_SSL_CERTFILE")
+    keyfile = ssl_keyfile or os.environ.get("AUTOWRKERS_SSL_KEYFILE")
 
     scheme = "https" if (certfile and keyfile) else "http"
-    console.print(f"[bold cyan]Starting UltraClaude server...[/bold cyan]")
+    console.print(f"[bold cyan]Starting Autowrkers server...[/bold cyan]")
     console.print(f"URL: {scheme}://{host if host != '0.0.0.0' else 'localhost'}:{port}")
 
     if certfile and keyfile:

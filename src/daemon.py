@@ -1,5 +1,5 @@
 """
-Daemon management for UltraClaude 24/7 operation.
+Daemon management for Autowrkers 24/7 operation.
 
 Supports systemd (Linux) and launchd (macOS) for automatic startup and recovery.
 """
@@ -15,11 +15,11 @@ from typing import Optional
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.daemon")
+logger = get_logger("autowrkers.daemon")
 
 # Service configuration
-SERVICE_NAME = "ultraclaude"
-SERVICE_DESCRIPTION = "UltraClaude - Multi-session Claude Code Manager"
+SERVICE_NAME = "autowrkers"
+SERVICE_DESCRIPTION = "Autowrkers - Multi-session Claude Code Manager"
 
 
 class DaemonStatus(Enum):
@@ -57,7 +57,7 @@ class DaemonInfo:
 
 
 class DaemonManager:
-    """Manages UltraClaude as a system service for 24/7 operation."""
+    """Manages Autowrkers as a system service for 24/7 operation."""
 
     def __init__(self):
         self._project_root = self._find_project_root()
@@ -73,7 +73,7 @@ class DaemonManager:
         return sys.executable
 
     def _find_project_root(self) -> Path:
-        """Find the UltraClaude project root directory."""
+        """Find the Autowrkers project root directory."""
         current = Path(__file__).parent.parent
         if (current / "main.py").exists():
             return current
@@ -115,14 +115,14 @@ WantedBy=default.target
         """Generate macOS launchd plist file content."""
         working_dir = str(self._project_root)
         home_dir = os.environ.get("HOME", "~")
-        log_dir = f"{home_dir}/.ultraclaude/logs"
+        log_dir = f"{home_dir}/.autowrkers/logs"
 
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ultraclaude.daemon</string>
+    <string>com.autowrkers.daemon</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -184,7 +184,7 @@ WantedBy=default.target
     # ==================== Install ====================
 
     async def install(self, host: str = "127.0.0.1", port: int = 8420) -> dict:
-        """Install UltraClaude as a system service."""
+        """Install Autowrkers as a system service."""
         if self._is_linux:
             return await self._install_systemd(host, port)
         elif self._is_macos:
@@ -250,7 +250,7 @@ WantedBy=default.target
         plist_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Create log directory
-        log_dir = Path.home() / ".ultraclaude" / "logs"
+        log_dir = Path.home() / ".autowrkers" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -265,8 +265,8 @@ WantedBy=default.target
                 "commands": {
                     "start": f"launchctl load {plist_path}",
                     "stop": f"launchctl unload {plist_path}",
-                    "status": f"launchctl list | grep ultraclaude",
-                    "logs": f"tail -f ~/.ultraclaude/logs/stdout.log",
+                    "status": f"launchctl list | grep autowrkers",
+                    "logs": f"tail -f ~/.autowrkers/logs/stdout.log",
                 },
             }
         except Exception as e:
@@ -275,7 +275,7 @@ WantedBy=default.target
     # ==================== Uninstall ====================
 
     async def uninstall(self) -> dict:
-        """Uninstall the UltraClaude service."""
+        """Uninstall the Autowrkers service."""
         if self._is_linux:
             return await self._uninstall_systemd()
         elif self._is_macos:
@@ -338,7 +338,7 @@ WantedBy=default.target
     # ==================== Start/Stop/Restart ====================
 
     async def start(self) -> dict:
-        """Start the UltraClaude service."""
+        """Start the Autowrkers service."""
         if self._is_linux:
             result = subprocess.run(
                 ["systemctl", "--user", "start", SERVICE_NAME],
@@ -379,7 +379,7 @@ WantedBy=default.target
             }
 
     async def stop(self) -> dict:
-        """Stop the UltraClaude service."""
+        """Stop the Autowrkers service."""
         if self._is_linux:
             result = subprocess.run(
                 ["systemctl", "--user", "stop", SERVICE_NAME],
@@ -402,7 +402,7 @@ WantedBy=default.target
             return {"success": False, "error": result.stderr or "Failed to stop service"}
 
     async def restart(self) -> dict:
-        """Restart the UltraClaude service."""
+        """Restart the Autowrkers service."""
         if self._is_linux:
             result = subprocess.run(
                 ["systemctl", "--user", "restart", SERVICE_NAME],
@@ -423,7 +423,7 @@ WantedBy=default.target
     # ==================== Status ====================
 
     async def get_status(self) -> DaemonInfo:
-        """Get the current status of the UltraClaude service."""
+        """Get the current status of the Autowrkers service."""
         if self._is_linux:
             return await self._get_systemd_status()
         elif self._is_macos:
@@ -503,13 +503,13 @@ WantedBy=default.target
                 text=True
             )
 
-            is_running = "com.ultraclaude.daemon" in result.stdout
+            is_running = "com.autowrkers.daemon" in result.stdout
 
             # Get PID if running
             pid = None
             if is_running:
                 for line in result.stdout.split("\n"):
-                    if "com.ultraclaude.daemon" in line:
+                    if "com.autowrkers.daemon" in line:
                         parts = line.split()
                         if parts and parts[0].isdigit():
                             pid = int(parts[0])
@@ -572,7 +572,7 @@ WantedBy=default.target
             except Exception as e:
                 return [f"Error retrieving logs: {e}"]
         elif self._is_macos:
-            log_file = Path.home() / ".ultraclaude" / "logs" / "stdout.log"
+            log_file = Path.home() / ".autowrkers" / "logs" / "stdout.log"
             if log_file.exists():
                 try:
                     with open(log_file, "r") as f:

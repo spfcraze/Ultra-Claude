@@ -13,7 +13,7 @@ from ..database import db
 class ArtifactManager:
     
     def __init__(self, base_dir: Path | None = None):
-        self._base_dir = base_dir or Path.home() / ".ultraclaude" / "artifacts"
+        self._base_dir = base_dir or Path.home() / ".autowrkers" / "artifacts"
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_artifact_path(self, workflow_id: str, artifact_id: str, name: str) -> Path:

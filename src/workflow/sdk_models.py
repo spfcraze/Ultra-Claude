@@ -1,8 +1,8 @@
 """
-SDK Todo Models - Bridge between Claude Agent SDK and UltraClaude
+SDK Todo Models - Bridge between Claude Agent SDK and Autowrkers
 
 This module provides data models for integrating Claude Agent SDK's
-todo tracking with UltraClaude's workflow system.
+todo tracking with Autowrkers's workflow system.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,7 +30,7 @@ class SDKTodo:
     """
     Represents a todo item from Claude Agent SDK's TodoWrite tool.
     
-    Maps to the SDK's todo format while adding UltraClaude-specific
+    Maps to the SDK's todo format while adding Autowrkers-specific
     fields for workflow/phase linkage.
     """
     id: str
@@ -79,7 +79,7 @@ class SDKTodo:
         
         Args:
             sdk_todo: Todo dict from SDK's TodoWrite tool_use block
-            workflow_id: UltraClaude workflow execution ID
+            workflow_id: Autowrkers workflow execution ID
         """
         return cls(
             id=sdk_todo.get("id", f"sdk-{datetime.now().timestamp()}"),
@@ -94,7 +94,7 @@ class SDKTodo:
 @dataclass
 class TodoSyncState:
     """
-    Tracks synchronization state between SDK todos and UltraClaude phases.
+    Tracks synchronization state between SDK todos and Autowrkers phases.
     
     Maintains the current list of todos for a workflow execution and
     provides progress calculations.

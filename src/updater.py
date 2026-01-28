@@ -366,7 +366,7 @@ class Updater:
 
     async def update(self, force: bool = False, method: str = "auto") -> dict:
         """
-        Update UltraClaude to the latest version.
+        Update Autowrkers to the latest version.
 
         Args:
             force: Force update even with uncommitted changes (git only)

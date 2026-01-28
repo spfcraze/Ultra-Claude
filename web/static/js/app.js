@@ -66,7 +66,7 @@ class Toast {
     }
 }
 
-class UltraClaude {
+class Autowrkers {
     constructor() {
         this.sessions = new Map();
         this.activeSessionId = null;
@@ -320,7 +320,7 @@ class UltraClaude {
         if (!session) return;
 
         if (Notification.permission === 'granted') {
-            new Notification(`UltraClaude - ${session.name}`, {
+            new Notification(`Autowrkers - ${session.name}`, {
                 body: 'Session needs your attention',
                 icon: '/static/favicon.svg'
             });
@@ -1366,7 +1366,7 @@ class UltraClaude {
 }
 
 // Initialize app
-const app = new UltraClaude();
+const app = new Autowrkers();
 
 // Global functions for HTML onclick handlers
 async function createSession() {

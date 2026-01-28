@@ -1,5 +1,5 @@
 """
-GitHub API Client for UltraClaude
+GitHub API Client for Autowrkers
 Handles all GitHub API interactions with rate limiting and error handling
 """
 import asyncio
@@ -73,7 +73,7 @@ class GitHubClient:
                 headers={
                     "Authorization": f"token {self.token}",
                     "Accept": "application/vnd.github.v3+json",
-                    "User-Agent": "UltraClaude/1.0"
+                    "User-Agent": "Autowrkers/1.0"
                 }
             )
         return self._session

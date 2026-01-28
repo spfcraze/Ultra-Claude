@@ -1,5 +1,5 @@
 """
-LLM Provider Abstraction for UltraClaude
+LLM Provider Abstraction for Autowrkers
 
 Provides a unified interface for different LLM backends:
 - Claude Code (default, uses tmux + claude CLI)

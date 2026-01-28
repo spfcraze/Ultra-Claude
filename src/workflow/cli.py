@@ -378,7 +378,7 @@ class WorkflowCLI:
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description="UltraClaude Workflow CLI")
+    parser = argparse.ArgumentParser(description="Autowrkers Workflow CLI")
     parser.add_argument("--no-color", action="store_true", help="Disable colored output")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     

@@ -1,5 +1,5 @@
 """
-Webhook handling for UltraClaude automation.
+Webhook handling for Autowrkers automation.
 
 Supports:
 - GitHub webhooks (issue.opened, pull_request.merged, etc.)
@@ -15,7 +15,7 @@ from typing import Callable, Dict, List, Optional, Any
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.webhooks")
+logger = get_logger("autowrkers.webhooks")
 
 
 class WebhookEventType(Enum):

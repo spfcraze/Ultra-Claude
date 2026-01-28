@@ -129,7 +129,7 @@ class ApprovalManager:
             })
         except Exception as e:
             import logging
-            logging.getLogger("ultraclaude.workflow").warning(f"Failed to record approval: {e}")
+            logging.getLogger("autowrkers.workflow").warning(f"Failed to record approval: {e}")
     
     def get_pending_message(self, execution_id: str) -> str | None:
         """Get the message for a pending approval."""
@@ -701,24 +701,56 @@ async def start_oauth_flow(provider: str, port: int = 0):
     if provider not in oauth_manager.SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider}")
     
+    if provider == "antigravity":
+        from .oauth.flows.antigravity import AntigravityOAuthFlow, AntigravityOAuthError
+
+        try:
+            flow = AntigravityOAuthFlow()
+            auth_url = flow.prepare_flow()
+
+            # Run the callback wait + token exchange in background
+            async def _complete_antigravity_flow():
+                try:
+                    token = await flow.wait_for_callback_and_exchange(timeout=120)
+                    oauth_manager.save_token(token)
+                    from .oauth.flows.antigravity import refresh_antigravity_token
+                    oauth_manager.register_refresh_callback("antigravity", refresh_antigravity_token)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger("autowrkers.antigravity.oauth").error(
+                        "Antigravity OAuth background flow failed: %s", exc
+                    )
+
+            asyncio.create_task(_complete_antigravity_flow())
+
+            # Return auth URL immediately so the frontend can open the browser
+            return {
+                "success": True,
+                "auth_url": auth_url,
+            }
+        except AntigravityOAuthError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Antigravity OAuth flow failed: {str(e)}")
+
     if not oauth_manager.has_client_config(provider):
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"OAuth client config not configured for {provider}. Upload client config first."
         )
-    
+
     if provider == "google":
         from .oauth.flows.google import GoogleOAuthFlow, GoogleOAuthFlowError
-        
+
         client_config = oauth_manager.get_client_config(provider)
         if not client_config:
             raise HTTPException(status_code=400, detail="OAuth client config not found")
-        
+
         try:
             flow = GoogleOAuthFlow(client_config)
             token = await flow.run_local_server_flow(port=port, open_browser=True)
             oauth_manager.save_token(token)
-            
+
             return {
                 "success": True,
                 "account_email": token.account_email,
@@ -728,7 +760,7 @@ async def start_oauth_flow(provider: str, port: int = 0):
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"OAuth flow failed: {str(e)}")
-    
+
     raise HTTPException(status_code=400, detail=f"OAuth flow not implemented for {provider}")
 
 

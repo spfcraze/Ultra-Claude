@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="ultraclaude",
+    name="autowrkers",
     version="0.4.0",
     packages=find_packages(),
     include_package_data=True,
@@ -21,11 +21,11 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ultraclaude=main:cli",
+            "autowrkers=main:cli",
         ],
     },
     python_requires=">=3.10",
-    author="UltraClaude",
+    author="Autowrkers",
     description="Multi-session Claude Code Manager with web dashboard",
     classifiers=[
         "Development Status :: 3 - Alpha",

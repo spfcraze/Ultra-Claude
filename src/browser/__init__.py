@@ -1,5 +1,5 @@
 """
-Browser Automation for UltraClaude.
+Browser Automation for Autowrkers.
 
 Provides Playwright-based browser automation with:
 - Multiple concurrent browser sessions

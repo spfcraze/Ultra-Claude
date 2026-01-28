@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import AsyncIterator, Callable, Awaitable, Any
 
-logger = logging.getLogger("ultraclaude.workflow")
+logger = logging.getLogger("autowrkers.workflow")
 
 from .models import (
     WorkflowPhase,

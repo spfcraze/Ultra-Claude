@@ -1,8 +1,8 @@
 """
-Claude Agent SDK Bridge - Integrates SDK with UltraClaude workflow system.
+Claude Agent SDK Bridge - Integrates SDK with Autowrkers workflow system.
 
 This module provides the connection layer between the Claude Agent SDK's
-streaming query interface and UltraClaude's workflow execution system.
+streaming query interface and Autowrkers's workflow execution system.
 """
 import asyncio
 from dataclasses import dataclass, field
@@ -21,7 +21,7 @@ class SDKConfig:
 
 class SDKBridge:
     """
-    Bridge between Claude Agent SDK and UltraClaude.
+    Bridge between Claude Agent SDK and Autowrkers.
     
     Handles SDK query execution, todo extraction from tool_use blocks,
     and synchronization with PhaseExecution status.

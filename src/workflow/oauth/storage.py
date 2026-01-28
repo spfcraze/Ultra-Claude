@@ -11,7 +11,7 @@ from ...database import db
 def _simple_encrypt(data: str) -> str:
     if not data:
         return ""
-    key = os.environ.get("ULTRACLAUDE_ENCRYPTION_KEY", "default-dev-key-change-in-prod")
+    key = os.environ.get("AUTOWRKERS_ENCRYPTION_KEY", "default-dev-key-change-in-prod")
     key_bytes = key.encode()[:32].ljust(32, b'\0')
     data_bytes = data.encode()
     encrypted = bytes(a ^ b for a, b in zip(data_bytes, key_bytes * (len(data_bytes) // 32 + 1)))
@@ -21,7 +21,7 @@ def _simple_encrypt(data: str) -> str:
 def _simple_decrypt(encrypted: str) -> str:
     if not encrypted:
         return ""
-    key = os.environ.get("ULTRACLAUDE_ENCRYPTION_KEY", "default-dev-key-change-in-prod")
+    key = os.environ.get("AUTOWRKERS_ENCRYPTION_KEY", "default-dev-key-change-in-prod")
     key_bytes = key.encode()[:32].ljust(32, b'\0')
     encrypted_bytes = base64.b64decode(encrypted)
     decrypted = bytes(a ^ b for a, b in zip(encrypted_bytes, key_bytes * (len(encrypted_bytes) // 32 + 1)))

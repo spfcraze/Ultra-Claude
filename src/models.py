@@ -1,5 +1,5 @@
 """
-Data models for UltraClaude GitHub Integration
+Data models for Autowrkers GitHub Integration
 """
 import json
 import os
@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from cryptography.fernet import Fernet
 
 # Data directory
-DATA_DIR = Path.home() / ".ultraclaude"
+DATA_DIR = Path.home() / ".autowrkers"
 PROJECTS_FILE = DATA_DIR / "projects.json"
 ISSUE_SESSIONS_FILE = DATA_DIR / "issue_sessions.json"
 ENCRYPTION_KEY_FILE = DATA_DIR / ".encryption_key"
@@ -83,7 +83,7 @@ class IssueFilter:
 
 @dataclass
 class Project:
-    """A project links UltraClaude to a GitHub repository"""
+    """A project links Autowrkers to a GitHub repository"""
     id: int
     name: str
     github_repo: str  # owner/repo format
@@ -248,7 +248,7 @@ class VerificationResult:
 
 @dataclass
 class IssueSession:
-    """Links a GitHub issue to an UltraClaude session"""
+    """Links a GitHub issue to an Autowrkers session"""
     id: int
     project_id: int
     github_issue_number: int
@@ -470,7 +470,7 @@ class IssueSessionManager:
         return None
 
     def get_by_session_id(self, session_id: int) -> Optional[IssueSession]:
-        """Get issue session by linked UltraClaude session ID"""
+        """Get issue session by linked Autowrkers session ID"""
         for s in self.sessions.values():
             if s.session_id == session_id:
                 return s
@@ -706,7 +706,7 @@ class SQLiteIssueSessionManager:
         return result
 
 
-USE_SQLITE = os.environ.get('ULTRACLAUDE_USE_SQLITE', '1') == '1'
+USE_SQLITE = os.environ.get('AUTOWRKERS_USE_SQLITE', '1') == '1'
 
 if USE_SQLITE:
     project_manager = SQLiteProjectManager()

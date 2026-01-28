@@ -1,5 +1,5 @@
 """
-Authentication module for UltraClaude
+Authentication module for Autowrkers
 
 Provides JWT-based authentication for API endpoints.
 """
@@ -27,7 +27,7 @@ from .crypto import encryption
 from .database import db
 
 # Constants
-DATA_DIR = Path.home() / ".ultraclaude"
+DATA_DIR = Path.home() / ".autowrkers"
 AUTH_CONFIG_KEY = "auth_config"
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
@@ -66,7 +66,7 @@ class AuthConfig:
     def _load_config(self):
         """Load auth configuration from database or environment."""
         # Check environment variable to enable/disable auth
-        env_enabled = os.environ.get('ULTRACLAUDE_AUTH_ENABLED', '').lower()
+        env_enabled = os.environ.get('AUTOWRKERS_AUTH_ENABLED', '').lower()
         if env_enabled in ('true', '1', 'yes'):
             self._auth_enabled = True
         elif env_enabled in ('false', '0', 'no'):
@@ -77,7 +77,7 @@ class AuthConfig:
             self._auth_enabled = False
 
         # Load JWT secret from env or generate
-        self._jwt_secret = os.environ.get('ULTRACLAUDE_JWT_SECRET')
+        self._jwt_secret = os.environ.get('AUTOWRKERS_JWT_SECRET')
         if not self._jwt_secret:
             # Try to load from database
             stored_secret = db.get_setting('jwt_secret')

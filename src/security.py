@@ -1,5 +1,5 @@
 """
-Security middleware and utilities for UltraClaude
+Security middleware and utilities for Autowrkers
 
 Provides:
 - Rate limiting
@@ -22,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .logging_config import get_logger
 
-logger = get_logger("ultraclaude.security")
+logger = get_logger("autowrkers.security")
 
 
 # ==================== Rate Limiting ====================
@@ -227,15 +227,15 @@ def get_cors_origins() -> List[str]:
     """
     Get allowed CORS origins from environment variable.
 
-    Set ULTRACLAUDE_CORS_ORIGINS to a comma-separated list of allowed origins.
+    Set AUTOWRKERS_CORS_ORIGINS to a comma-separated list of allowed origins.
     Defaults to localhost origins only.
 
     Examples:
-        ULTRACLAUDE_CORS_ORIGINS=https://myapp.example.com
-        ULTRACLAUDE_CORS_ORIGINS=https://app1.com,https://app2.com
-        ULTRACLAUDE_CORS_ORIGINS=*   (allow all - NOT recommended for production)
+        AUTOWRKERS_CORS_ORIGINS=https://myapp.example.com
+        AUTOWRKERS_CORS_ORIGINS=https://app1.com,https://app2.com
+        AUTOWRKERS_CORS_ORIGINS=*   (allow all - NOT recommended for production)
     """
-    env_origins = os.environ.get("ULTRACLAUDE_CORS_ORIGINS", "").strip()
+    env_origins = os.environ.get("AUTOWRKERS_CORS_ORIGINS", "").strip()
     if env_origins:
         return [o.strip() for o in env_origins.split(",") if o.strip()]
     # Default: localhost only
