@@ -21,7 +21,7 @@ def main():
 def version():
     """Show version information."""
     console.print(f"[bold cyan]Autowrkers[/bold cyan] v{__version__}")
-    console.print(f"Repository: https://github.com/spfcraze/Ultra-Claude")
+    console.print(f"Repository: https://github.com/spfcraze/AutoWrkers")
 
 
 @main.command()
@@ -77,7 +77,7 @@ async def _update(check_only: bool, force: bool):
         
         if not git_status.get("is_git"):
             console.print("\n[yellow]Cannot auto-update:[/yellow] Not a git repository.")
-            console.print(f"Download manually from: {update_info.release_url or 'https://github.com/spfcraze/Ultra-Claude'}")
+            console.print(f"Download manually from: {update_info.release_url or 'https://github.com/spfcraze/AutoWrkers'}")
             return
         
         console.print("\n[bold]Installing update...[/bold]")

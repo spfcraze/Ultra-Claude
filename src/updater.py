@@ -13,7 +13,7 @@ import httpx
 
 from src import __version__
 
-GITHUB_REPO = "spfcraze/Ultra-Claude"
+GITHUB_REPO = "spfcraze/AutoWrkers"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}"
 GITHUB_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}"
 GITHUB_ZIP_URL = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip"

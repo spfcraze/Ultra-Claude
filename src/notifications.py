@@ -798,7 +798,7 @@ class NotificationManager:
             event=NotificationEvent.SYSTEM_UPDATE_AVAILABLE,
             title="Update Available",
             message=f"Autowrkers {latest_version} is available (you have {current_version})",
-            url="https://github.com/spfcraze/Ultra-Claude/releases",
+            url="https://github.com/spfcraze/AutoWrkers/releases",
             severity="info",
         ))
 

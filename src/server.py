@@ -320,7 +320,7 @@ async def get_version():
     from src import __version__
     return {
         "version": __version__,
-        "repo": "https://github.com/spfcraze/Ultra-Claude",
+        "repo": "https://github.com/spfcraze/AutoWrkers",
     }
 
 
